@@ -145,6 +145,8 @@ npm install
 | | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_BUCKET` | 2번 값 / `dose-photos` |
 | | `GEMINI_API_KEY` / `MFDS_SERVICE_KEY` / `JWT_SECRET` | 각 담당자가 발급한 값 (`JWT_SECRET`은 긴 무작위 문자열) |
 | | `CRON_SECRET` | 긴 무작위 문자열 (cron-job.org 에도 같은 값 입력) |
+| | `INTERNAL_TOKEN` | 약 소진 알림을 호출하는 내부 시스템의 Bearer 토큰 |
+| | `EXPO_ACCESS_TOKEN` | Expo Push 보안을 활성화한 경우의 액세스 토큰 |
 | medi-care-web | `EXPO_PUBLIC_API_URL` | API 주소, 예: `https://medi-care-api.onrender.com` |
 
 웹은 API와 주소가 다르므로 **웹 정적 사이트 환경 변수에 API 주소를 넣고, API의 `CORS_ORIGINS`에 웹 주소를 넣어야** 웹에서 API를 부를 수 있습니다.
@@ -174,6 +176,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `pair_attempts` | IP별 기기 연결 시도 | `client_ip`, `attempted_at` |
 | `alarm_settings` | 어르신별·회차별 알람 방식 | PK(`patient_id`, `slot`), `mode` 기본 `POPUP` |
 | `push_tokens` | 보호자 기기의 Expo 푸시 토큰 | `guardian_id` → guardians, `expo_token` UNIQUE |
+| `guardian_notifications` | 처방별 약 소진 알림 | `prescription_id` UNIQUE, `depletion_date`, `status` |
 | `drug_info` | 식약처 의약품 정보 캐시 | PK `item_seq`(품목기준코드), `normalized_name` INDEX, `dur_json`, `pill_json` |
 | `prescriptions` | 처방 1건 | `patient_id`, `start_date`, `days`, `image_path`(NULL 가능), `ai_json` |
 | `prescription_drugs` | 처방에 포함된 약 1종 | `item_seq`(NULL 가능) → drug_info, `count_per_dose`, `slots`(JSON 배열), `meal_timing` 기본 `AFTER` |

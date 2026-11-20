@@ -9,6 +9,7 @@ EXPECTED_TABLES = {
     "patients",
     "alarm_settings",
     "push_tokens",
+    "guardian_notifications",
     "drug_info",
     "prescriptions",
     "prescription_drugs",

@@ -31,6 +31,10 @@ services:
         sync: false
       - key: CRON_SECRET # 외부 크론이 X-Cron-Secret 헤더로 보내는 값
         sync: false
+      - key: INTERNAL_TOKEN
+        sync: false
+      - key: EXPO_ACCESS_TOKEN
+        sync: false
 
   # ── 웹 (Expo 웹 빌드, 정적 사이트) ──
   - type: web
