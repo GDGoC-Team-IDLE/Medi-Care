@@ -43,16 +43,16 @@ export const spacing = {
 export const theme = { colors, fontSize, sizes, spacing } as const;
 
 /**
- * 목업 5판(design/mockup)의 디자인 토큰. 목업을 옮긴 화면(src/screens)과 부품(src/components)이 씁니다.
+ * 목업 6판(design/mockup/v6)의 디자인 토큰. 목업을 옮긴 화면(src/screens)과 부품(src/components)이 씁니다.
  */
 export const C = {
   paper: '#FAFAFA',
-  ink: '#171717',
+  ink: '#2E2E2E', // 6판
   ink2: '#555555',
   line: '#DADADA',
   tint: '#F0F0F0',
   plan: '#737373',
-  track: '#858585',
+  track: '#737373', // 6판: plan 과 거의 같아 하나로 합침
   sun: '#FFC421',
   ok: '#0E5F35',
   miss: '#C2570A',
@@ -60,9 +60,13 @@ export const C = {
   wrong: '#B3123B',
   night: '#121212',
   nightt: '#BDBDBD',
+  lock: '#4A4A4C', // 8판 잠금·알림 미리 보기 바탕(중성 회색)
   cam: '#111111',
   white: '#FFFFFF',
 } as const;
+
+/** 모서리 4단계 (6판). 완전 원은 셔터·상태 모양·스위치만 */
+export const R = { s: 12, m: 16, l: 20, xl: 28 } as const;
 
 /** 목업 기준 화면 크기. 좌표는 이 크기 위의 값이고 Phone(src/components/core.tsx)이 기기에 맞춰 늘립니다. */
 export const W = 390;

@@ -1,13 +1,13 @@
-// 계정 (보호자 이메일 로그인 → "이 폰을 어르신 폰으로 설정") · 연결 숫자(별안)
+// 계정 (보호자 이메일 로그인 → "어르신 폰으로 쓰기") · 연결 숫자(별안)
 import { useRef, useState } from 'react';
 import { Share, View, type TextInputInstance } from 'react-native';
 import { go, swap, back } from '@/lib/nav';
 import { api, ApiError, clearToken, saveToken } from '@/lib/api';
 import { LINK_CODE } from '@/lib/mock';
-import { C } from '@/constants/theme';
-import { Icon, Ill, Phone, T, Tap, abs } from '@/components/core';
+import { C, R } from '@/constants/theme';
+import { Icon, Phone, T, Tap, abs } from '@/components/core';
 import { Field } from '@/components/field';
-import { Back, Badge, Btn, Sub, Verdict } from '@/components/parts';
+import { Back, Badge, Btn, Phone3D, PillNoti, Sub, Verdict } from '@/components/parts';
 import { requestMedicationNotificationPermissions } from '@/lib/medicationNotifications';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -90,19 +90,20 @@ export function Login() {
         onSubmitEditing={() => void submit()}
       />
       <Btn two label="로그인" onPress={() => void submit()} />
-      <Sub label="처음이에요 · 가입" onPress={() => void submit(true)} />
+      <Sub label="가입하기" onPress={() => void submit(true)} />
     </Phone>
   );
 }
 
-/** c02 누구 폰인가요? */
+/** c02 누가 쓸 폰인가요? */
 export function Device() {
   return (
     <Phone>
       <Back />
-      <Ill name="phone" w={160} style={abs({ left: 115, top: 172 })} />
-      <Verdict title="누구 폰인가요?" tell="어르신 폰이면 아래를 눌러요" />
-      <Btn two label="어르신 폰으로 설정" onPress={() => go('c03-patient')} />
+      {/* 목업 3D 폰: 몸을 돌려 들어와 좌우로 천천히 흔들리며 둥실 */}
+      <Phone3D left={115} top={172} ry={-30} sw={22} />
+      <Verdict mv={false} title="누가 쓸 폰인가요?" />
+      <Btn two label="어르신 폰으로 쓰기" onPress={() => go('c03-patient')} />
       {/* 처음 로그인한 보호자 폰: 복용 기록이 있는 현황이 아니라 약이 아직 없는 현황으로 */}
       <Sub label="내 폰으로 쓰기" onPress={() => swap('g08-empty')} />
     </Phone>
@@ -139,7 +140,7 @@ export function Patient() {
         어르신 이름
       </T>
       <T c={C.ink2} left={28} right={28} top={186}>
-        보호자 화면에 이렇게 보여요
+        내 화면에 이렇게 보여요
       </T>
       <Field
         label="부를 이름"
@@ -157,7 +158,7 @@ export function Patient() {
         onSubmitEditing={submit}
       />
       {/* 자판 위에 붙는 자리 */}
-      <Btn top={418} label="설정 끝내기" onPress={submit} />
+      <Btn top={418} label="다음" onPress={submit} />
     </Phone>
   );
 }
@@ -166,12 +167,11 @@ export function Patient() {
 export function Linked() {
   return (
     <Phone>
-      <View style={abs({ left: 75, top: 172, width: 240, height: 160 })}>
-        <Ill name="phone" w={160} style={abs({ left: -4, top: 0 })} />
-        <Ill name="phone-ring" w={160} style={abs({ left: 84, top: 0 })} />
-      </View>
-      <Badge icon="link" top={172} />
-      <Verdict title="연결됐어요" tell="이제 바로 약 화면이 열려요" line="이 폰엔 로그인이 남지 않아요" />
+      {/* 두 폰이 서로 향해 돌아 들어오고, 어르신 폰이 울리며 알약이 톡톡 → 연결 배지 */}
+      <Phone3D left={55} top={172} ry={34} sw={-18} enter="l" />
+      <Phone3D left={175} top={172} ry={-34} r0={75} sw={18} pills ring enter="r" />
+      <Badge icon="link" top={172} delay={0.6} />
+      <Verdict mv={false} title="연결됐어요" tell="앱을 열면 바로 약 화면이에요" line="보호자 로그인은 남지 않아요" />
       <Btn label="다음" onPress={() => go('c05-notify')} />
     </Phone>
   );
@@ -186,10 +186,10 @@ export function Notify() {
   return (
     <Phone>
       <Back />
-      <Ill name="phone-ring" w={160} style={abs({ left: 115, top: 172 })} />
-      <Badge icon="bell-ring" top={172} />
-      <Verdict title="알림 켜기" tell="약 먹을 때 소리로 알려요" />
-      <Btn label="켜기" onPress={() => void enable()} />
+      {/* 받게 될 알림 모양을 미리 보여 준다: 회색 판 없이 p17 카드 하나가 위에서 내려온다 */}
+      <PillNoti preview when="지금" title="점심 2알" top={120} />
+      <Verdict readAloud mv={false} title="알림을 켜 주세요" top={508} tell="약 드실 때 이렇게 알려요" tellTop={562} />
+      <Btn icon="bell-ring" label="알림 켜기" onPress={() => void enable()} />
     </Phone>
   );
 }
@@ -213,7 +213,7 @@ export function Code() {
         onPress={() => Share.share({ message: `약 알림 연결 숫자: ${shown}` }).catch(() => {})}
         style={[
           abs({ left: 28, right: 28, top: 730, height: 64 }),
-          { borderRadius: 32, backgroundColor: C.ink, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+          { borderRadius: R.m, backgroundColor: C.ink, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
         ]}
       >
         <Icon name="message-circle" size={24} c={C.paper} />
@@ -252,7 +252,7 @@ export function Pad() {
         연결 숫자
       </T>
       <T c={C.ink2} left={28} right={28} top={186}>
-        보호자 폰의 숫자 6개
+        보호자 폰에 뜬 숫자를 넣어요
       </T>
       <View style={[abs({ left: 28, right: 28, top: 256 }), { flexDirection: 'row', justifyContent: 'space-between' }]}>
         {[0, 1, 2, -1, 3, 4, 5].map((i) =>
@@ -305,9 +305,10 @@ export function CodeBad() {
   return (
     <Phone>
       <Back close />
-      <Ill name="phone" w={160} style={abs({ left: 115, top: 172 })} />
+      {/* 돌아 들어온 뒤 고개를 한 번 젓는다 */}
+      <Phone3D left={115} top={172} ry={-22} kind="shake" />
       <Badge icon="x" top={172} />
-      <Verdict title="숫자가 달라요" tell="보호자 폰 숫자를 다시 봐요" />
+      <Verdict mv={false} title="숫자가 달라요" tell="보호자 폰을 다시 봐 주세요" />
       <Btn two label="다시 넣기" onPress={back} />
       <Sub icon="refresh-cw" label="새 숫자 받기" onPress={back} />
     </Phone>
