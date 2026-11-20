@@ -4,9 +4,11 @@ import { useCallback, useEffect, useState } from 'react';
 import { Animated, AppState, Easing, Linking, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { back, go, swap } from '@/lib/nav';
-import { api } from '@/lib/api';
+import { api, TOKEN_KEYS } from '@/lib/api';
+import { getItem } from '@/lib/storage';
 import { isWeb } from '@/lib/platform';
 import { elderHome } from '@/screens/account';
+import { SAY_COUNT, SLOT_ROW, type Slot as DoseTime } from '@/screens/register';
 import { GUARDIAN, call } from '@/lib/mock';
 import { C, R } from '@/constants/theme';
 import { Icon, Ill, Phone, Pop, Row, StatusMark, T, Tap, Up, abs, reduceMotion, type IllName, type Status } from '@/components/core';
@@ -95,19 +97,116 @@ export function Empty() {
   );
 }
 
+/** GET /patients/me/dose-slots 의 회차 (p04 에 쓰는 칸만) */
+type TodaySlot = {
+  slot_id: number;
+  slot: DoseTime;
+  scheduled_at: string;
+  expected_count: number;
+  status: 'PENDING' | 'DONE' | 'MISSED' | 'WRONG';
+  drugs: { meal_timing: 'BEFORE' | 'AFTER' | 'ANY' }[];
+};
+const TRAY_TIMES: DoseTime[] = ['MORNING', 'LUNCH', 'DINNER'];
+const TRAY_STATE = { PENDING: 'plan', DONE: 'done', MISSED: 'missed', WRONG: 'wrong' } as const;
+const MEAL = { BEFORE: '식전', AFTER: '식후', ANY: '식사와 무관' } as const;
+const PILL_ILLS: IllName[] = ['pill-capsule', 'pill-round-blue', 'pill-scored'];
+
+/** 지금 먹을 회차: 아직 안 드신 회차 중 지금 시각에 가장 가까운 회차 (다 드셨으면 null) */
+function pickNow(slots: TodaySlot[]): TodaySlot | null {
+  const gap = (s: TodaySlot) => Math.abs(new Date(s.scheduled_at).getTime() - Date.now());
+  const left = slots.filter((s) => s.status !== 'DONE');
+  return left.length ? left.reduce((a, b) => (gap(b) < gap(a) ? b : a)) : null;
+}
+
 /** p04 오늘: 지금 먹을 회차. 회차 상태는 약통 칸으로만 말한다 */
 export function Today() {
+  // undefined = 불러오는 중 · null = 기기 연결 전(화면 목록에서 바로 열기 → 예시) · 'error' = 연결된 폰인데 못 불러옴
+  const [data, setData] = useState<{ slots: TodaySlot[]; cur: TodaySlot | null } | null | undefined | 'error'>(undefined);
+  // 화면에 올 때마다 · 다시 해 보기를 누를 때 오늘 회차를 다시 본다
+  const load = useCallback(() => {
+    let live = true;
+    api
+      .get<{ slots: TodaySlot[] }>('/patients/me/dose-slots')
+      .then(({ slots: s }) => {
+        if (!live) return;
+        if (!s.length) return swap('p21-empty'); // 오늘 회차 없음
+        setData({ slots: s, cur: pickNow(s) });
+      })
+      // 실제 어르신 폰에서 예시 약을 안내하면 안 되므로, 기기 토큰이 있으면 예시 대신 오류를 보인다
+      .catch(async () => {
+        const paired = !!(await getItem(TOKEN_KEYS.device));
+        if (live) setData(paired ? 'error' : null);
+      });
+    return () => {
+      live = false;
+    };
+  }, []);
+  useFocusEffect(load);
+  if (data === undefined) return <Phone>{null}</Phone>;
+  if (data === 'error') {
+    return (
+      <Phone>
+        <Say icon text="약 정보를 불러오지 못했어요. 잠시 뒤 다시 해 주세요." />
+        <Tray now={1} />
+        <Up delay={0.6}>
+          <T s={32} k center top={380}>
+            불러오지 못했어요
+          </T>
+        </Up>
+        <Btn up={0.85} two icon="refresh-cw" label="다시 해 보기" onPress={() => (setData(undefined), load())} />
+        <Sub up={0.9} icon="phone" label={callG} onPress={call} />
+      </Phone>
+    );
+  }
+  if (data === null) {
+    return (
+      <Phone>
+        <Say icon text="점심 약 드실 시간이에요. 식후 두 알. 드시기 전에 사진을 찍어 주세요." />
+        <Tray slots={['done', 'plan', 'plan']} f={1} cur={1} now={0.443} />
+        <Up delay={0.6}>
+          <T s={84} num center top={360}>
+            점심
+          </T>
+        </Up>
+        <Pills pills={['pill-capsule', 'pill-round-blue']} count="2알" meal="식후" />
+        <Btn up={0.85} icon="camera" label="찍기" onPress={() => go('p06-shoot')} />
+      </Phone>
+    );
+  }
+  const { slots, cur } = data;
+  const tray = TRAY_TIMES.map((t) => {
+    const s = slots.find((x) => x.slot === t);
+    return s ? TRAY_STATE[s.status] : 'none';
+  });
+  if (!cur) {
+    return (
+      <Phone>
+        <Say icon text="오늘 약은 다 드셨어요." />
+        <Tray slots={tray} now={1} />
+        <Up delay={0.6}>
+          <T s={56} k center top={380}>
+            다 드셨어요
+          </T>
+        </Up>
+        <Btn up={0.85} kind="idle" label="오늘 먹은 약 보기" onPress={() => go('p27-didtake')} />
+      </Phone>
+    );
+  }
+  const f = TRAY_TIMES.indexOf(cur.slot); // 자기 전은 약통 칸이 없어 -1
+  const name = SLOT_ROW[cur.slot].name;
+  const n = cur.expected_count;
+  const meal = MEAL[cur.drugs[0]?.meal_timing ?? 'AFTER'];
   return (
     <Phone>
-      <Say icon text="점심 약 드실 시간이에요. 식후 두 알. 드시기 전에 사진을 찍어 주세요." />
-      <Tray slots={['done', 'plan', 'plan']} f={1} cur={1} now={0.443} />
+      <Say icon text={`${name} 약 드실 시간이에요. ${meal} ${SAY_COUNT[n] ?? n} 알. 드시기 전에 사진을 찍어 주세요.`} />
+      <Tray slots={tray} f={f >= 0 ? f : undefined} cur={f >= 0 ? f : undefined} now={f >= 0 ? 0.443 : 1} />
       <Up delay={0.6}>
         <T s={84} num center top={360}>
-          점심
+          {name}
         </T>
       </Up>
-      <Pills pills={['pill-capsule', 'pill-round-blue']} count="2알" meal="식후" />
-      <Btn up={0.85} icon="camera" label="찍기" onPress={() => go('p06-shoot')} />
+      <Pills pills={cur.drugs.slice(0, 4).map((_, i) => PILL_ILLS[i % PILL_ILLS.length])} count={`${n}알`} meal={meal} />
+      <Btn up={0.85} icon="camera" label="찍기" onPress={() => go(`p06-shoot?slot_id=${cur.slot_id}`)} />
     </Phone>
   );
 }
