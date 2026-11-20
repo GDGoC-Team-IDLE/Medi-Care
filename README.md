@@ -39,6 +39,7 @@
 │   │   ├── security.py     # 비밀번호 해시, JWT, 토큰 해시
 │   │   ├── seed.py         # 시연용 데이터
 │   │   └── routers/
+│   │       ├── alarms.py   # 어르신별·회차별 알림 방식 설정
 │   │       ├── auth.py     # 보호자 가입·로그인·토큰·탈퇴
 │   │       ├── patients.py # 어르신 등록·기기 연결·기기 인증
 │   │       └── health.py   # GET /api/v1/health
