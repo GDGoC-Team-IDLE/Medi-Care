@@ -48,7 +48,7 @@ const READ: ScanSpec = {
   ],
 };
 
-type Slot = 'MORNING' | 'LUNCH' | 'DINNER' | 'BEDTIME';
+export type Slot = 'MORNING' | 'LUNCH' | 'DINNER' | 'BEDTIME';
 
 /** POST /prescriptions/analyze 응답 (쓰는 칸만) */
 interface Preview {
@@ -170,14 +170,14 @@ function SlotRow({ top, pouch, name, count, onPress, i = 0 }: { top: number; pou
   );
 }
 
-const SLOT_ROW: Record<Slot, { name: string; pouch: IllName }> = {
+export const SLOT_ROW: Record<Slot, { name: string; pouch: IllName }> = {
   MORNING: { name: '아침', pouch: 'pouch-morning' },
   LUNCH: { name: '점심', pouch: 'pouch-noon' },
   DINNER: { name: '저녁', pouch: 'pouch-evening' },
   BEDTIME: { name: '자기 전', pouch: 'pouch-blank' },
 };
 /** 읽어 줄 때 알 수는 고유어로 (두 알, 세 알) */
-const SAY_COUNT = ['영', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟', '아홉', '열'];
+export const SAY_COUNT = ['영', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟', '아홉', '열'];
 
 /** 분석 결과 → 복용 일수 · 회차별 알 수. 결과가 없으면 예시(7일, 아침 2 · 점심 2 · 저녁 3) */
 function summary(p: Preview | null): { days: number; rows: [Slot, number][] } {

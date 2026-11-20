@@ -1,13 +1,15 @@
 // 알림 · 약 없음 · 인증 촬영 · 판정 5종 · 실패/연결 없음 · 카메라 권한
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { Linking, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { back, go, swap } from '@/lib/nav';
+import { api, ApiError, appendFile } from '@/lib/api';
+import { SAY_COUNT, SLOT_ROW, type Slot } from '@/screens/register';
 import { GUARDIAN, call } from '@/lib/mock';
 import { C } from '@/constants/theme';
 import { Icon, Phone, Row, T, Tap, Up, abs, type IconName } from '@/components/core';
 import { Fig3 } from '@/components/figure';
-import { Back, Badge, Blink, Btn, Burst, CamTitle, Fig, Lock, PillNoti, Say, ScanCard, Sheet, Shutter, Stop, Sub, Torch, Verdict, Viewfinder, type ScanSpec } from '@/components/parts';
+import { Back, Badge, Blink, Btn, Burst, CamTitle, Fig, Lock, PillNoti, Say, ScanCard, Sheet, Shutter, Stop, Sub, Torch, Verdict, Viewfinder, lastShot, type ScanSpec } from '@/components/parts';
 
 const shoot = () => go('p06-shoot');
 const told = `${GUARDIAN}에게 알렸어요`;
@@ -147,15 +149,78 @@ export function Before() {
 
 const NOON = { icon: 'sun', title: '점심 2알' } as const;
 
-/** p06 인증 촬영. 흰 점선 = 놓을 자리(위 약포, 아래 손바닥) */
+const SLOT_ICON: Record<Slot, IconName> = { MORNING: 'sunrise', LUNCH: 'sun', DINNER: 'moon', BEDTIME: 'moon' };
+const slotName = (s: Slot) => SLOT_ROW[s].name;
+const hhmm = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/** GET /patients/me/dose-slots 의 회차 (쓰는 칸만) */
+interface TodaySlot {
+  slot_id: number;
+  slot: Slot;
+  scheduled_at: string;
+  expected_count: number;
+}
+
+/** POST /patients/me/dose-slots/{slot_id}/verifications 응답 (쓰는 칸만) */
+interface Verify {
+  result: string; // OK · WRONG_TIME · ALREADY_TAKEN · COUNT_MISMATCH · RETAKE
+  slot: Slot;
+  ai_extracted: { bag_slot: Slot | null; pill_count: number | null } | null;
+  expected: { pill_count: number };
+  appearance_check: { status: string } | null;
+  taken_at: string | null;
+}
+
+/** 찍을 회차와 그 다음 회차. p06 이 정하고 p18 이 쓴다 */
+let target: { slot: TodaySlot; next: TodaySlot | null } | null = null;
+/** 마지막 판정. p07~p10 이 글을 채운다 (없으면 예시) */
+let verdict: Verify | null = null;
+
+/**
+ * 오늘 회차 중 찍을 회차. 알림에서 온 slot_id 가 있으면 그 회차, 없으면 지금 시각에 가장 가까운 회차.
+ * 이미 드신 회차도 고른다 → 같은 약을 또 찍으면 서버가 ALREADY_TAKEN 으로 두 번 먹기를 막는다. 회차가 없으면 null
+ */
+async function pickTarget(slotId?: number) {
+  const { slots } = await api.get<{ slots: TodaySlot[] }>('/patients/me/dose-slots');
+  if (!slots.length) return null;
+  const at = (s: TodaySlot) => new Date(s.scheduled_at).getTime();
+  const sorted = [...slots].sort((a, b) => at(a) - at(b));
+  const gap = (s: TodaySlot) => Math.abs(at(s) - Date.now());
+  const slot = sorted.find((s) => s.slot_id === slotId) ?? sorted.reduce((a, b) => (gap(b) < gap(a) ? b : a));
+  return { slot, next: sorted[sorted.indexOf(slot) + 1] ?? null };
+}
+
+/** p06 인증 촬영. 흰 점선 = 놓을 자리(위 약포, 아래 손바닥). 열 때 찍을 회차를 받아 제목에 쓴다 (못 받으면 예시) */
 export function Shoot() {
+  const { slot_id } = useLocalSearchParams<{ slot_id?: string }>();
+  const [head, setHead] = useState<{ icon: IconName; title: string; say: string } | null>(null);
+  useEffect(() => {
+    target = null;
+    let live = true;
+    pickTarget(Number(slot_id) || undefined).then(
+      (t) => {
+        target = t;
+        if (!live) return;
+        if (!t) return swap('p21-empty'); // 오늘 먹을 약이 없음
+        const { slot, expected_count: n } = t.slot;
+        setHead({ icon: SLOT_ICON[slot], title: `${slotName(slot)} ${n}알`, say: `${slotName(slot)} 약 ${SAY_COUNT[n] ?? n} 알` });
+      },
+      () => live && setHead({ ...NOON, say: '점심 약 두 알' }),
+    );
+    return () => {
+      live = false;
+    };
+  }, [slot_id]);
   return (
     <Phone bg={C.cam} fg={C.white}>
       <Back close onPress={() => swap('p04-today')} />
-      <CamTitle {...NOON} />
+      {head && <CamTitle icon={head.icon} title={head.title} />}
       <Viewfinder guide photo="photo-palm-noon-2" />
       <Shutter onPress={() => go('p18-checking')} />
-      <Say cam text="점심 약 두 알. 봉투는 위에, 약은 손바닥에 놓고 찍어 주세요." />
+      <Say cam text={`${head?.say ?? '점심 약 두 알'}. 봉투는 위에, 약은 손바닥에 놓고 찍어 주세요.`} />
     </Phone>
   );
 }
@@ -194,11 +259,69 @@ const CHECK: ScanSpec = {
   ],
 };
 
-/** p18 보는 중. Gemini 는 봉투 시간 표시·알약 개수만 읽고 판정은 서버 규칙. 8초를 넘으면 p15t */
+/** 장면(밑줄·칸 채우기)이 끝나는 시각. 판정이 빨리 와도 여기까지는 보여 준다 */
+const SCENE_MS = 5900;
+/** 이보다 오래 걸리면 p15t */
+const SLOW_MS = 8000;
+const VERDICT_ROUTE: Record<string, string> = {
+  OK: 'p07-ok',
+  WRONG_TIME: 'p08-wrongtime',
+  ALREADY_TAKEN: 'p09-already',
+  COUNT_MISMATCH: 'p10-count',
+  RETAKE: 'p11-retake',
+};
+
+/** 인증 실패 → 화면 (다시 해 보기는 인증 촬영으로) */
+function verifyFail(x: unknown): string {
+  const status = x instanceof ApiError ? x.status : -1;
+  const code = x instanceof ApiError ? x.code : '';
+  if (status === 0) return 'p15-offline';
+  if (code === 'SLOT_NOT_TODAY' || code === 'DOSE_SLOT_NOT_FOUND') return 'p04-today';
+  if (code === 'IMAGE_REQUIRED' || code === 'UNSUPPORTED_IMAGE_TYPE') return 'p11-retake';
+  return 'p15t-slow'; // 503 AI_UNAVAILABLE, 401 등
+}
+
+/**
+ * p18 보는 중. 찍은 사진을 POST /patients/me/dose-slots/{slot_id}/verifications 로 보낸다.
+ * Gemini 는 봉투 시간 표시·알약 개수만 읽고 판정은 서버 규칙. 판정은 장면이 끝난 뒤(RETAKE 는 바로), 8초를 넘으면 p15t.
+ * 찍은 사진 없이 열면(화면 목록) 예전처럼 장면이 끝나면 예시 p07 로 간다.
+ */
 export function Checking() {
   useEffect(() => {
-    const t = setTimeout(() => swap('p07-ok'), 5900);
-    return () => clearTimeout(t);
+    const uri = lastShot();
+    if (!uri) {
+      const t = setTimeout(() => swap('p07-ok'), SCENE_MS);
+      return () => clearTimeout(t);
+    }
+    let done = false;
+    const to = (id: string) => {
+      if (done) return;
+      done = true;
+      swap(id);
+    };
+    const started = Date.now();
+    const slow = setTimeout(() => to('p15t-slow'), SLOW_MS);
+    const run = async () => {
+      try {
+        const t = target ?? (await pickTarget());
+        if (!t) return to('p21-empty');
+        target = t;
+        const form = new FormData();
+        await appendFile(form, 'image', { uri, name: 'dose.jpg', type: 'image/jpeg' });
+        const v = await api.postForm<Verify>(`/patients/me/dose-slots/${t.slot.slot_id}/verifications`, form);
+        if (done) return;
+        verdict = v;
+        const wait = v.result === 'RETAKE' ? 0 : Math.max(0, SCENE_MS - (Date.now() - started));
+        setTimeout(() => to(VERDICT_ROUTE[v.result] ?? 'p11-retake'), wait);
+      } catch (x) {
+        to(verifyFail(x));
+      }
+    };
+    void run();
+    return () => {
+      done = true;
+      clearTimeout(slow);
+    };
   }, []);
   return (
     <Phone>
@@ -211,11 +334,22 @@ export function Checking() {
 /* ── 판정 5종 (OK = 회차 완료). 그림 → 표시(멈춤 손·고리) → 글 → 버튼 ── */
 /** p07 OK: 물이 차오르고 알약 둘이 차례로 떨어진다 */
 export function Ok() {
+  const v = verdict;
+  const next = target?.next;
+  const tell = v?.taken_at ? `${slotName(v.slot)} ${hhmm(v.taken_at)} 완료` : '점심 12:31 완료';
+  // 판정은 OK 지만 알약 색·모양이 등록된 약과 달라 보이면 그 경고를 먼저
+  const [line, lineIcon]: [string, IconName | undefined] = !v
+    ? ['다음은 저녁 식후', 'moon']
+    : v.appearance_check?.status === 'MISMATCH'
+      ? ['약 모양이 달라 보여요', 'circle-alert']
+      : next
+        ? [`다음은 ${slotName(next.slot)}`, SLOT_ICON[next.slot]]
+        : ['오늘 약은 다 드셨어요', undefined];
   return (
     <Phone bg={C.ok} fg={C.white}>
       <Burst />
       <Fig fig="verdict-ok@240" motion="vk-ok" left={75} top={152} width={240} height={200} />
-      <Verdict readAloud title="맞아요, 드세요" tell="점심 12:31 완료" line="다음은 저녁 식후" lineIcon="moon" />
+      <Verdict readAloud title="맞아요, 드세요" tell={tell} line={line} lineIcon={lineIcon} />
       <Btn up={0.32} kind="w" label="확인" onPress={() => swap('p19-wait')} />
     </Phone>
   );
@@ -223,14 +357,16 @@ export function Ok() {
 
 /** p08 WRONG_TIME: 화살표가 저녁 봉투에서 점심 봉투로, 저녁 봉투가 들썩인다 */
 export function WrongTime() {
+  const bag = verdict?.ai_extracted?.bag_slot; // 사진 속 봉투의 회차
+  const want = verdict?.slot; // 지금 찍을 회차
   return (
     // 6판: 멈춤은 화면 전체 빨강 — 맞아요(초록)와 같은 무게, 다시 찍기(흰 바탕)와 한눈에 갈린다
     <Phone bg={C.wrong} fg={C.white}>
       <Back close />
       <Fig fig="verdict-wrong-time@334" motion="vk-wt" />
       <Stop />
-      <Verdict readAloud title="저녁 약이에요" tell="드시지 말고 봉투에 넣어 두세요" line={told} lineIcon="bell" />
-      <Btn up={0.32} two kind="w" icon="camera" label="점심 봉투 찍기" onPress={shoot} />
+      <Verdict readAloud title={`${bag ? slotName(bag) : '저녁'} 약이에요`} tell="드시지 말고 봉투에 넣어 두세요" line={told} lineIcon="bell" />
+      <Btn up={0.32} two kind="w" icon="camera" label={`${want ? slotName(want) : '점심'} 봉투 찍기`} onPress={shoot} />
       <Sub up={0.38} icon="phone" label={callG} onPress={call} />
     </Phone>
   );
@@ -243,7 +379,7 @@ export function Already() {
       <Back close />
       <Fig fig="verdict-already@307" motion="vk-al" />
       <Stop />
-      <Verdict readAloud title="아침 약은 드셨어요" tell="드시지 말고 봉투에 넣어 두세요" line={told} lineIcon="bell" />
+      <Verdict readAloud title={`${verdict ? slotName(verdict.slot) : '아침'} 약은 드셨어요`} tell="드시지 말고 봉투에 넣어 두세요" line={told} lineIcon="bell" />
       <Btn up={0.32} two kind="w" label="확인" onPress={() => swap('p04-today')} />
       <Sub up={0.38} icon="phone" label={callG} onPress={call} />
     </Phone>
@@ -252,6 +388,9 @@ export function Already() {
 
 /** p10 COUNT_MISMATCH. 개수만 비교한다. 있는 알약이 나오고 빈 자리 점선이 깜빡인다 */
 export function Count() {
+  const seen = verdict ? (verdict.ai_extracted?.pill_count ?? 0) : 1; // 사진 속 알 수
+  const want = verdict ? verdict.expected.pill_count : 2; // 드실 알 수
+  const diff = want - seen;
   return (
     <Phone bg={C.wrong} fg={C.white}>
       <Back close />
@@ -259,10 +398,10 @@ export function Count() {
       <Stop />
       <Up delay={0.14}>
         <T k center top={340}>
-          사진 1알 · 드실 약 2알
+          {`사진 ${seen}알 · 드실 약 ${want}알`}
         </T>
       </Up>
-      <Verdict readAloud title="1알이 모자라요" tell="다시 세어 보세요" line={told} lineIcon="bell" />
+      <Verdict readAloud title={diff > 0 ? `${diff}알이 모자라요` : `${-diff}알이 많아요`} tell="다시 세어 보세요" line={told} lineIcon="bell" />
       <Btn up={0.32} two kind="w" icon="camera" label="다시 찍기" onPress={shoot} />
       <Sub up={0.38} icon="phone" label={callG} onPress={call} />
     </Phone>
