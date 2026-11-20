@@ -1,7 +1,10 @@
 // 오늘 (허브) · 기록 ("오늘 약 먹었나요?" → 지난 날 목록 → 그날) · 기기 권한(알림 꺼짐) · 약 없음 뒤 허브
 import { useEffect, useState } from 'react';
-import { Animated, Easing, Linking, View } from 'react-native';
-import { back, go } from '@/lib/nav';
+import { Animated, AppState, Easing, Linking, View } from 'react-native';
+import * as Notifications from 'expo-notifications';
+import { back, go, swap } from '@/lib/nav';
+import { isWeb } from '@/lib/platform';
+import { elderHome } from '@/screens/account';
 import { GUARDIAN, call } from '@/lib/mock';
 import { C, R } from '@/constants/theme';
 import { Icon, Ill, Phone, Pop, Row, StatusMark, T, Tap, Up, abs, reduceMotion, type IllName, type Status } from '@/components/core';
@@ -126,8 +129,20 @@ export function AfterNoMed() {
   );
 }
 
-/** p26 알림 권한이 꺼졌을 때 */
+const goElderHome = async () => swap(await elderHome());
+
+/** p26 알림 권한이 꺼졌을 때. 설정에서 켜고 앱으로 돌아오면 다시 확인해 넘어간다. 웹은 알림이 없어 버튼이 바로 넘어간다 */
 export function BellOff() {
+  useEffect(() => {
+    if (isWeb) return;
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active') return;
+      void Notifications.getPermissionsAsync().then(({ status }) => {
+        if (status === 'granted') void goElderHome();
+      });
+    });
+    return () => sub.remove();
+  }, []);
   const [v] = useState(() => new Animated.Value(0));
   useEffect(() => {
     if (reduceMotion()) return;
@@ -147,7 +162,7 @@ export function BellOff() {
       <T s={32} k center top={436}>
         알림이 꺼져 있어요
       </T>
-      <Btn up={0.85} two icon="bell-ring" label="알림 켜기" onPress={() => Linking.openSettings().catch(() => {})} />
+      <Btn up={0.85} two icon="bell-ring" label="알림 켜기" onPress={() => (isWeb ? void goElderHome() : void Linking.openSettings().catch(() => {}))} />
       <Sub up={0.9} icon="phone" label={callG} onPress={call} />
     </Phone>
   );
