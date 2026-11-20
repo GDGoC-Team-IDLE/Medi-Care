@@ -488,8 +488,8 @@ export function CodeBad() {
       <Phone3D left={115} top={172} ry={-22} kind="shake" />
       <Badge icon="x" top={172} />
       <Verdict mv={false} title="숫자가 달라요" tell="보호자 폰을 다시 봐 주세요" />
-      <Btn two label="다시 넣기" onPress={back} />
-      <Sub icon="refresh-cw" label="새 숫자 받기" onPress={back} />
+      {/* 새 숫자는 보호자 폰(g04)에서만 받을 수 있어서 어르신 폰엔 '새 숫자 받기'를 두지 않는다. 버튼이 하나라 기본 자리(696) */}
+      <Btn label="다시 넣기" onPress={back} />
     </Phone>
   );
 }
