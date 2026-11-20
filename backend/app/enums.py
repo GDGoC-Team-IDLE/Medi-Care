@@ -38,6 +38,13 @@ class AlarmMode(StrEnum):
     FULLSCREEN = "FULLSCREEN"
 
 
+class GuardianAlertType(StrEnum):
+    """보호자에게 전송하는 알림 종류"""
+
+    # MISSED(예정 시각 + 60분)와 구분되는 단계적 알림의 15분 무응답 이벤트입니다.
+    DOSE_NO_RESPONSE = "DOSE_NO_RESPONSE"
+
+
 class MealTiming(StrEnum):
     """식전/식후"""
 

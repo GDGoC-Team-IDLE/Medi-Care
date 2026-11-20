@@ -24,7 +24,7 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.clock import now_local
 from app.core.database import Base
-from app.enums import AlarmMode, DoseStatus, MealTiming, Slot, VerifyResult
+from app.enums import AlarmMode, DoseStatus, GuardianAlertType, MealTiming, Slot, VerifyResult
 
 JSONColumn = JSON().with_variant(JSONB(), "postgresql")
 
@@ -248,3 +248,33 @@ class DoseLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
     dose_slot: Mapped[DoseSlot] = relationship(back_populates="logs")
+
+
+class GuardianAlert(Base):
+    """보호자 알림 내역. 같은 회차·종류의 알림은 한 번만 만듭니다."""
+
+    __tablename__ = "guardian_alerts"
+    __table_args__ = (
+        UniqueConstraint("dose_slot_id", "type", name="uq_guardian_alert_slot_type"),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guardian_id: Mapped[int] = mapped_column(
+        ForeignKey("guardians.id", ondelete="CASCADE"), index=True
+    )
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("patients.id", ondelete="CASCADE"), index=True
+    )
+    dose_slot_id: Mapped[int] = mapped_column(
+        ForeignKey("dose_slots.id", ondelete="CASCADE"), index=True
+    )
+    type: Mapped[GuardianAlertType] = mapped_column(_enum(GuardianAlertType))
+    title: Mapped[str] = mapped_column(String(100))
+    body: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local, index=True)
+    push_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    push_error: Mapped[str | None] = mapped_column(String(500))
+
+    guardian: Mapped[Guardian] = relationship()
+    patient: Mapped[Patient] = relationship()
+    dose_slot: Mapped[DoseSlot] = relationship()
