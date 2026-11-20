@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # gemini-2.5-flash 는 새 키에서 404 입니다. 인식이 부족하면 gemini-3.8-flash (약 5배 비쌈).
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_timeout_seconds: float = 30
+    mfds_service_key: str = ""
 
     mfds_service_key: str = ""  # 공공데이터포털 낱알식별 정보 API 인증키
 

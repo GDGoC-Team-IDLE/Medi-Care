@@ -225,6 +225,7 @@ class PrescriptionDrug(Base):
     item_seq: Mapped[str | None] = mapped_column(ForeignKey("drug_info.item_seq"))  # 매칭 실패 시 NULL
     drug_name: Mapped[str] = mapped_column(String(255))  # 처방전에 적힌 이름
     count_per_dose: Mapped[int] = mapped_column(Integer)  # 1회 복용 개수
+    days: Mapped[int | None] = mapped_column(Integer)  # 기존 약은 처방 일수를 사용합니다.
     slots: Mapped[list[str]] = mapped_column(JSONColumn)  # 복용 회차 목록, 예: ["MORNING", "DINNER"]
     meal_timing: Mapped[MealTiming] = mapped_column(
         _enum(MealTiming), default=MealTiming.AFTER, server_default=MealTiming.AFTER.value
@@ -232,6 +233,9 @@ class PrescriptionDrug(Base):
 
     prescription: Mapped[Prescription] = relationship(back_populates="drugs")
     drug_info: Mapped[DrugInfo | None] = relationship()
+
+    def is_scheduled_on(self, slot_date: date) -> bool:
+        return self.days is None or 0 <= (slot_date - self.prescription.start_date).days < self.days
 
 
 class DoseSlot(Base):
@@ -320,3 +324,21 @@ class GuardianAlert(Base):
     guardian: Mapped[Guardian] = relationship()
     patient: Mapped[Patient] = relationship()
     dose_slot: Mapped[DoseSlot | None] = relationship()
+
+
+class DurCheck(Base):
+    """DUR 의약품 주의사항 검사 1건. 식약처 원문과 쉬운 설명을 함께 저장합니다."""
+
+    __tablename__ = "dur_checks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("patients.id", ondelete="CASCADE"), index=True
+    )
+    prescription_ids: Mapped[list[int]] = mapped_column(JSONColumn)  # 검사한 처방전 ID 목록
+    check_types: Mapped[list[str]] = mapped_column(JSONColumn)  # 요청한 DUR 검사 유형
+    check_status: Mapped[str] = mapped_column(String(20))
+    medication_count: Mapped[int] = mapped_column(Integer)
+    # [{warning_id, warning_type, medications, original_message, easy_message, source}]
+    warnings_json: Mapped[Any] = mapped_column(JSONColumn)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)

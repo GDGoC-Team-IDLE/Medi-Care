@@ -1,10 +1,11 @@
 // 화면 유형마다 되풀이되는 부품 (목업 6판의 0번 틀 · 허브 약통 칸 · 판정 · 카메라 · 글자 분석 · 잠금 알림)
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Easing, Platform, View } from 'react-native';
+import { Animated, Easing, Image, Platform, View } from 'react-native';
 import Svg, { Circle, Defs, LinearGradient, Path, Pattern, Rect, Stop as SvgStop, SvgXml } from 'react-native-svg';
 import * as Speech from 'expo-speech';
-import { back } from '@/lib/nav';
+import * as ImagePicker from 'expo-image-picker';
+import { back, go } from '@/lib/nav';
 import { TODAY_LONG } from '@/lib/mock';
 import { C, R, W } from '@/constants/theme';
 import { Color, Icon, Ill, Pop, Row, StatusMark, T, Tap, Up, abs, near1, reduceMotion, useBackSlot, useFg, type IconName, type IllName, type Pos, type Status } from './core';
@@ -562,14 +563,36 @@ function useShutterLock(at: number | null) {
 }
 
 /** 셔터 (6판): 흰 면 원 + 검은 6 테두리 + 흰 4 바깥 선, 글자 없음. 누르면 안쪽 흰 원이 줄어든다(테두리 16) */
-export function Shutter({ onPress, at = 1.8 }: { onPress?: () => void; at?: number | null }) {
+/** 마지막으로 찍은 사진 uri. 다음 화면의 ScanCard(읽는 중·보는 중)가 보여 준다 */
+let shot: string | null = null;
+
+/** 찍기: 기기 카메라를 열고, 찍은 사진의 uri 를 onPress 로 넘긴다. 권한이 없으면 p14 */
+export function Shutter({ onPress, at = 1.8 }: { onPress?: (uri: string) => void; at?: number | null }) {
   const [pressed, setPressed] = useState(false);
+  const busy = useRef(false); // 두 번 눌러도 카메라는 한 번만
+  const shoot = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) return go('p14-nocam');
+      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
+      if (!res.canceled) {
+        shot = res.assets[0].uri;
+        onPress?.(shot);
+      }
+    } catch {
+      go('p14-nocam'); // 카메라가 없는 기기·에뮬레이터
+    } finally {
+      busy.current = false;
+    }
+  };
   const lk = useShutterLock(at);
   const ring = lk ? lk.interpolate({ inputRange: [0, 0.08, 0.3, 1], outputRange: [0, 1, 0, 0] }) : null;
   return (
     <Tap
       accessibilityLabel="찍기"
-      onPress={onPress}
+      onPress={shoot}
       onPressIn={() => setPressed(true)}
       onPressOut={() => setPressed(false)}
       style={[abs({ left: 139, top: 696, width: 112, height: 112 }), { borderRadius: 56, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' }]}
@@ -656,7 +679,7 @@ export function ScanCard({ spec, title }: { spec: ScanSpec; title: string }) {
         ]}
       >
         <View style={{ width: CARD.w, height: CARD.h, borderRadius: 34 * s, overflow: 'hidden' }}>
-          <Ill name={spec.photo} w={CARD.w} h={CARD.h} />
+          {shot ? <Image source={{ uri: shot }} style={{ width: CARD.w, height: CARD.h }} resizeMode="cover" /> : <Ill name={spec.photo} w={CARD.w} h={CARD.h} />}
           {spec.glints.map(([m, d], i) => (
             <Glint key={i} markup={m} delay={d} />
           ))}
