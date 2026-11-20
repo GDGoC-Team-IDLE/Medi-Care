@@ -28,7 +28,17 @@ class VerifyResult(StrEnum):
     WRONG_TIME = "WRONG_TIME"  # 복용 시간이 아님
     ALREADY_TAKEN = "ALREADY_TAKEN"  # 이미 복용한 회차
     COUNT_MISMATCH = "COUNT_MISMATCH"  # 알약 개수 불일치
+    APPEARANCE_MISMATCH = "APPEARANCE_MISMATCH"  # 알약 색·모양 불일치
     RETAKE = "RETAKE"  # 사진 재촬영 필요
+
+
+class AppearanceStatus(StrEnum):
+    """복용 인증 응답의 알약 색·모양 비교 결과 (DB 에는 저장하지 않음)"""
+
+    MATCH = "MATCH"  # 등록된 약과 색·모양이 모두 맞음
+    MISMATCH = "MISMATCH"  # 빠진 약이 있거나 다른 모양의 알약이 있음
+    COUNT_ONLY = "COUNT_ONLY"  # 색·모양으로 약을 구별할 수 없어 개수만 확인함
+    RETAKE = "RETAKE"  # 사진으로 색·모양을 확인할 수 없음
 
 
 class AlarmMode(StrEnum):

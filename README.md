@@ -12,7 +12,7 @@
 
 앱과 웹은 같은 코드(`mobile/`, Expo)로 만듭니다.
 
-지금 저장소에는 기초 설정과 보호자 인증, 어르신 기기 연결, 복용 현황 조회 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
+지금 저장소에는 기초 설정과 보호자 인증, 어르신 기기 연결, 복용 현황 조회, 복약 인증 사진 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
 
 
 - **배포:** Render ([render.yaml](render.yaml))
@@ -35,17 +35,25 @@
 │   │   ├── core/
 │   │   │   ├── config.py   # 환경 변수 (DATABASE_URL, Supabase, CORS, 시간대)
 │   │   │   ├── database.py # engine, SessionLocal, Base, get_db
-│   │   │   └── clock.py    # now_local() - 서비스 시간대 기준 현재 시각
-│   │   ├── enums.py        # Slot, DoseStatus, VerifyResult, AlarmMode, MealTiming
+│   │   │   ├── clock.py    # now_local() - 서비스 시간대 기준 현재 시각
+│   │   │   └── envelope.py # {"success", "data" | "error"} 응답 형식 (라우터별로 선택)
+│   │   ├── enums.py        # Slot, DoseStatus, VerifyResult, AppearanceStatus, AlarmMode, MealTiming
 │   │   ├── models.py       # DB 테이블 14개
 │   │   ├── security.py     # 비밀번호 해시, JWT, 토큰 해시
 │   │   ├── seed.py         # 시연용 데이터
+│   │   ├── services/
+│   │   │   ├── expo_push.py       # Expo 푸시 전송
+│   │   │   ├── gemini.py          # Gemini 호출 (이미지 → JSON)
+│   │   │   ├── dose_photo.py      # 인증 사진 분석 지시문·응답 형식
+│   │   │   ├── pill_appearance.py # 식약처 색·모양 정규화, 알약 비교 규칙
+│   │   │   └── photo_storage.py   # 인증 사진 저장 (Supabase / 로컬)
 │   │   └── routers/
-│   │       ├── auth.py     # 보호자 가입·로그인·토큰·탈퇴
-│   │       ├── patients.py # 어르신 등록·기기 연결·기기 인증
+│   │       ├── auth.py          # 보호자 가입·로그인·토큰·탈퇴
+│   │       ├── patients.py      # 어르신 등록·기기 연결·기기 인증
 │   │       ├── notifications.py # 보호자 푸시 토큰·15분 무응답 알림
-│   │       ├── dose_status.py # GET /api/v1/patients/{patient_id}/status
-│   │       └── health.py   # GET /api/v1/health
+│   │       ├── dose_status.py   # GET /api/v1/patients/{patient_id}/status
+│   │       ├── verifications.py # 복약 인증 사진 판정
+│   │       └── health.py        # GET /api/v1/health
 │   └── tests/            # SQLite로 smoke 및 인증 전체 흐름 테스트
 └── mobile/                 # React Native (Expo) - 안드로이드 앱 + 웹
     ├── app.json            # 웹은 SPA(output: single)로 빌드
@@ -149,6 +157,7 @@ npm install
 | | `TZ` | `Asia/Seoul` |
 | | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_BUCKET` | 2번 값 / `dose-photos` |
 | | `GEMINI_API_KEY` / `MFDS_SERVICE_KEY` / `JWT_SECRET` | 각 담당자가 발급한 값 (`JWT_SECRET`은 긴 무작위 문자열) |
+| | `GEMINI_MODEL` | 비워 두면 `gemini-3.5-flash-lite` (`gemini-2.5-flash`는 새 키에서 사용 불가) |
 | | `CRON_SECRET` | 긴 무작위 문자열 (cron-job.org 에도 같은 값 입력) |
 | | `INTERNAL_TOKEN` | 약 소진 알림을 호출하는 내부 시스템의 Bearer 토큰 |
 | | `EXPO_ACCESS_TOKEN` | Expo Push 보안을 활성화한 경우의 액세스 토큰 |
@@ -166,6 +175,15 @@ API 서비스는 `region: singapore`로 만들어집니다 (만든 뒤에는 바
   엔드포인트는 헤더 값이 `CRON_SECRET`과 같은지 확인하도록 구현합니다. 서버 안에서 도는 스케줄러(APScheduler 등)는 쓰지 않습니다.
 - **복용 시간 알림:** 예정 시각과 5·10·15분 뒤 알림은 폰에서 로컬로 예약합니다.
 - **보호자 알림:** 15분 알림 시점에만 어르신 앱이 서버에 무응답을 보고합니다. 앱이 종료되어 즉시 전송하지 못한 경우에는 다음 앱 실행 시 재시도하며, 같은 복용 회차의 보호자 알림은 서버에서 한 번만 생성합니다.
+
+## 복약 인증 (사진)
+
+`POST /api/v1/patients/{patient_id}/dose-slots/{slot_id}/verifications` (multipart `photo`, 어르신 기기 토큰)
+
+- Gemini는 사진에서 약봉투 시간 표시와 알약 색·모양만 뽑고, 판정은 서버가 합니다. 판정 순서는 [routers/verifications.py](backend/app/routers/verifications.py), 색·모양 비교 규칙은 [services/pill_appearance.py](backend/app/services/pill_appearance.py) 맨 위 설명에 있습니다.
+- 등록된 약의 색·모양은 `drug_info.pill_json`(식약처 낱알식별 원본)의 `DRUG_SHAPE`, `COLOR_CLASS1/2`에서 읽습니다. 이 정보가 없는 약은 개수만 확인합니다.
+- 응답은 `{"success": true, "data": ...}` / `{"success": false, "error": {"code", "message"}}` 형식입니다 ([core/envelope.py](backend/app/core/envelope.py)).
+- 사진은 Supabase 설정이 있으면 Supabase Storage에, 없으면 `UPLOAD_DIR`에 저장합니다.
 
 ## DB 테이블
 
@@ -197,7 +215,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | --- | --- |
 | `Slot` | `MORNING` `LUNCH` `DINNER` `BEDTIME` |
 | `DoseStatus` | `PENDING` `DONE` `MISSED` `WRONG` |
-| `VerifyResult` | `OK` `WRONG_TIME` `ALREADY_TAKEN` `COUNT_MISMATCH` `RETAKE` |
+| `VerifyResult` | `OK` `WRONG_TIME` `ALREADY_TAKEN` `COUNT_MISMATCH` `APPEARANCE_MISMATCH` `RETAKE` |
 | `AlarmMode` | `POPUP` `FULLSCREEN` |
 | `GuardianAlertType` | `DOSE_NO_RESPONSE` |
 | `MealTiming` | `BEFORE` `AFTER` `ANY` |
