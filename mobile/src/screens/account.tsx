@@ -2,7 +2,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { Share, View, type TextInputInstance } from 'react-native';
 import { go, swap, back } from '@/lib/nav';
-import { api, ApiError, saveToken } from '@/lib/api';
+import { api, ApiError, clearToken, saveToken } from '@/lib/api';
 import { C, R } from '@/constants/theme';
 import { Icon, Phone, T, Tap, abs } from '@/components/core';
 import { Field } from '@/components/field';
@@ -11,6 +11,10 @@ import { requestMedicationNotificationPermissions } from '@/lib/medicationNotifi
 import { isWeb } from '@/lib/platform';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** 이 폰을 보호자 폰으로: 예전 어르신 기기 토큰이 남아 있으면 약봉투 등록이 그 기기의 어르신(me)에게 저장된다 */
+const saveGuardian = (t: { access_token: string; refresh_token: string }) =>
+  Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token), clearToken('device')]);
 
 /** 로그인·가입 실패를 칸 아래 글로 */
 function loginError(x: unknown): { email?: string; pw?: string } {
@@ -52,7 +56,7 @@ export function Login() {
     const user_email = email.trim();
     try {
       const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
-      await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
+      await saveGuardian(t);
       go(await guardianHome());
     } catch (x) {
       setErr(loginError(x));
@@ -136,7 +140,7 @@ export function Signup() {
     try {
       await api.post('/auth/signup', { user_email, password: pw, user_nickname: n });
       const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
-      await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
+      await saveGuardian(t);
       go('c03-patient'); // 막 가입한 보호자는 어르신이 없다
     } catch (x) {
       setErr(loginError(x));
@@ -422,7 +426,8 @@ export function Pad() {
   const pair = async (c: string) => {
     try {
       const { device_token } = await api.post<{ device_token: string }>('/devices/pair', { code: c });
-      await saveToken('device', device_token);
+      // 이 폰은 어르신 폰: 보호자 로그인이 남아 있으면 지운다 (보호자 화면·등록과 섞이지 않게)
+      await Promise.all([saveToken('device', device_token), clearToken('guardian'), clearToken('guardianRefresh')]);
       swap('c04-linked');
     } catch {
       setCode(''); // 틀림·만료·횟수 초과 → c07 에서 '다시 넣기'로 돌아오면 빈 칸부터

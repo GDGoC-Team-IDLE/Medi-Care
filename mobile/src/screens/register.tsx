@@ -129,8 +129,10 @@ let dur: Dur | null = null;
  */
 async function owner(): Promise<string | null> {
   if (await getItem(TOKEN_KEYS.device)) return 'me';
-  const [{ patients }, cur] = await Promise.all([api.get<{ patients: { patient_id: number }[] }>('/patients'), loadCurrentPatient()]);
-  const pick = patients.find((p) => p.patient_id === cur?.patient_id) ?? patients[0];
+  const [{ patients }, cur] = await Promise.all([api.get<{ patients: { patient_id: number; paired: boolean }[] }>('/patients'), loadCurrentPatient()]);
+  // 마이페이지에서 고른 어르신 → 없으면 폰이 연결된 어르신 중 가장 최근 → 그래도 없으면 첫 어르신
+  // (첫 어르신이 기본이면 연결 안 된 예전 어르신에게 저장돼 어르신 화면이 안 바뀔 수 있다)
+  const pick = patients.find((p) => p.patient_id === cur?.patient_id) ?? [...patients].reverse().find((p) => p.paired) ?? patients[0];
   return pick ? String(pick.patient_id) : null;
 }
 
