@@ -173,7 +173,7 @@ API 서비스는 `region: singapore`로 만들어집니다 (만든 뒤에는 바
 ## 주기 작업 · 알림
 
 - **주기 작업:** 외부 크론(cron-job.org)이 `POST /api/v1/internal/tick`을 `X-Cron-Secret` 헤더와 함께 10분마다 호출합니다 (담당: 안민규).
-  엔드포인트는 헤더 값이 `CRON_SECRET`과 같은지 확인하도록 구현합니다. 서버 안에서 도는 스케줄러(APScheduler 등)는 쓰지 않습니다.
+  헤더 값은 `CRON_SECRET`과 같아야 합니다. 미복용 기준은 `MISSED_AFTER_MINUTES`(기본 60), 소진 알림 기준은 `MEDICATION_LOW_DAYS`(기본 3)입니다.
 - **복용 시간 알림:** 예정 시각과 5·10·15분 뒤 알림은 폰에서 로컬로 예약합니다.
 - **보호자 알림:** 15분 알림 시점에만 어르신 앱이 서버에 무응답을 보고합니다. 앱이 종료되어 즉시 전송하지 못한 경우에는 다음 앱 실행 시 재시도하며, 같은 복용 회차의 보호자 알림은 서버에서 한 번만 생성합니다.
 
@@ -191,6 +191,7 @@ API 서비스는 `region: singapore`로 만들어집니다 (만든 뒤에는 바
 
 DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들어집니다.
 `create_all`은 **이미 있는 테이블을 바꾸지 않으므로**, 컬럼을 바꾼 뒤에는 Neon dev 브랜치에서 해당 테이블을 지우거나 브랜치를 초기화(Reset from parent)한 뒤 다시 실행합니다.
+`guardian_alerts`의 주기 작업용 컬럼과 인덱스는 PostgreSQL에서 앱 시작 시 기존 기록을 유지한 채 추가합니다.
 
 | 테이블 | 설명 | 주요 컬럼 |
 | --- | --- | --- |
@@ -203,6 +204,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `alarm_settings` | 어르신별·회차별 알람 방식 | PK(`patient_id`, `slot`), `mode` 기본 `POPUP` |
 | `push_tokens` | 보호자 기기의 Expo 푸시 토큰 | `guardian_id` → guardians, `expo_token` UNIQUE |
 | `guardian_notifications` | 처방별 약 소진 알림 | `prescription_id` UNIQUE, `depletion_date`, `status` |
+| `guardian_alerts` | 보호자 알림 기록 | `patient_id`, `type`, `dose_slot_id` 또는 `prescription_id`, `dedupe_key` UNIQUE, `push_sent_at` |
 | `drug_info` | 식약처 의약품 정보 캐시 | PK `item_seq`(품목기준코드), `normalized_name` INDEX, `dur_json`, `pill_json` |
 | `prescriptions` | 처방 1건 | `patient_id`, `start_date`, `days`, `image_path`(NULL 가능), `ai_json` |
 | `prescription_drugs` | 처방에 포함된 약 1종 | `item_seq`(NULL 가능) → drug_info, `count_per_dose`, `slots`(JSON 배열), `meal_timing` 기본 `AFTER` |
@@ -220,6 +222,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `VerifyResult` | `OK` `WRONG_TIME` `ALREADY_TAKEN` `COUNT_MISMATCH` `APPEARANCE_MISMATCH` `RETAKE` |
 | `AlarmMode` | `POPUP` `FULLSCREEN` |
 | `GuardianAlertType` | `DOSE_NO_RESPONSE` `WRONG_DOSE` |
+| `GuardianAlertType` | `DOSE_NO_RESPONSE` `MISSED` `WELFARE_CHECK` `MEDICATION_LOW` |
 | `MealTiming` | `BEFORE` `AFTER` `ANY` |
 
 시간은 tz 정보 없이 서비스 시간대(Asia/Seoul) 기준으로 저장합니다. 현재 시각은 `datetime.now()` 대신 `app.core.clock.now_local()`을 씁니다.

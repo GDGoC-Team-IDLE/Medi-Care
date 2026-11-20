@@ -33,6 +33,10 @@ services:
         sync: false
       - key: CRON_SECRET # 외부 크론이 X-Cron-Secret 헤더로 보내는 값
         sync: false
+      - key: MISSED_AFTER_MINUTES
+        value: "60"
+      - key: MEDICATION_LOW_DAYS
+        value: "3"
       - key: INTERNAL_TOKEN
         sync: false
       - key: EXPO_ACCESS_TOKEN

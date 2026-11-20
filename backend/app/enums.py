@@ -55,6 +55,10 @@ class GuardianAlertType(StrEnum):
     DOSE_NO_RESPONSE = "DOSE_NO_RESPONSE"
     # 복약 인증 결과가 ALREADY_TAKEN / WRONG_TIME / COUNT_MISMATCH 일 때 인증 API 가 바로 보냅니다.
     WRONG_DOSE = "WRONG_DOSE"
+    MISSED = "MISSED"
+    WELFARE_CHECK = "WELFARE_CHECK"
+    MEDICATION_LOW = "MEDICATION_LOW"
+
 
 
 class MealTiming(StrEnum):

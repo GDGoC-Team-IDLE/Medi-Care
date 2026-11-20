@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -58,6 +59,8 @@ class Settings(BaseSettings):
     # ── 주기 작업 ──
     # 외부 크론(cron-job.org)이 POST /api/v1/internal/tick 을 부를 때 X-Cron-Secret 헤더로 보내는 값
     cron_secret: str = ""
+    missed_after_minutes: int = Field(default=60, ge=0)
+    medication_low_days: int = Field(default=3, ge=0)
     internal_token: str = ""  # 보호자 알림 API 호출용 Bearer 토큰
     expo_access_token: str = ""  # Expo Push 보안이 활성화된 프로젝트에서 사용
 
