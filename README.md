@@ -12,7 +12,7 @@
 
 앱과 웹은 같은 코드(`mobile/`, Expo)로 만듭니다.
 
-지금 저장소에는 기초 설정과 보호자 인증·어르신 기기 연결 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
+지금 저장소에는 기초 설정과 보호자 인증, 어르신 기기 연결, 복용 현황 조회 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
 
 
 - **배포:** Render ([render.yaml](render.yaml))
@@ -44,6 +44,7 @@
 │   │       ├── auth.py     # 보호자 가입·로그인·토큰·탈퇴
 │   │       ├── patients.py # 어르신 등록·기기 연결·기기 인증
 │   │       ├── notifications.py # 보호자 푸시 토큰·15분 무응답 알림
+│   │       ├── dose_status.py # GET /api/v1/patients/{patient_id}/status
 │   │       └── health.py   # GET /api/v1/health
 │   └── tests/            # SQLite로 smoke 및 인증 전체 흐름 테스트
 └── mobile/                 # React Native (Expo) - 안드로이드 앱 + 웹
