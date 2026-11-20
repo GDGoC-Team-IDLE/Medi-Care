@@ -1,4 +1,5 @@
 // 계정 (보호자 이메일 로그인 → "어르신 폰으로 쓰기") · 연결 숫자(별안)
+import { useLocalSearchParams } from 'expo-router';
 import { useRef, useState } from 'react';
 import { Share, View, type TextInputInstance } from 'react-native';
 import { go, swap, back } from '@/lib/nav';
@@ -9,6 +10,7 @@ import { Icon, Phone, T, Tap, abs } from '@/components/core';
 import { Field } from '@/components/field';
 import { Back, Badge, Btn, Phone3D, PillNoti, Sub, Verdict } from '@/components/parts';
 import { requestMedicationNotificationPermissions } from '@/lib/medicationNotifications';
+import { getIssued } from './mypage';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -297,9 +299,12 @@ export function Notify() {
   );
 }
 
-/** g04 연결 숫자 (보호자 폰) */
+/** g04 연결 숫자 (보호자 폰). 마이페이지에서 받은 숫자면(?issued=1) 그 숫자 · 어르신 이름 · 5분 안내. 아니면 목업 예시 숫자 */
 export function Code() {
-  const shown = `${LINK_CODE.slice(0, 3)} ${LINK_CODE.slice(3)}`;
+  const q = useLocalSearchParams<{ issued?: string }>();
+  const [got] = useState(() => (q.issued ? getIssued() : null));
+  const raw = got?.code ?? LINK_CODE;
+  const shown = `${raw.slice(0, 3)} ${raw.slice(3)}`;
   return (
     <Phone>
       <Back />
@@ -312,6 +317,17 @@ export function Code() {
       <T s={56} num left={28} top={260} style={{ letterSpacing: 0.04 * 56 }}>
         {shown}
       </T>
+      {got && (
+        <>
+          {/* 이름은 최대 10자: 한 줄에 맞춰 글자만 줄인다 */}
+          <T s={20} k fit={334} left={28} right={28} top={348}>
+            {got.name}
+          </T>
+          <T s={20} c={C.ink2} left={28} right={28} top={380}>
+            5분 안에 넣어 주세요
+          </T>
+        </>
+      )}
       <Tap
         onPress={() => Share.share({ message: `약 알림 연결 숫자: ${shown}` }).catch(() => {})}
         style={[
