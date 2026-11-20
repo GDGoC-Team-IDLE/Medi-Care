@@ -1,6 +1,6 @@
 // 약봉투 등록 (찍기 → 읽기 → 회차 확인 → 주의 → 일정 시작) · 고치기 (회차 → 약 목록 → 약 하나 · 일수)
-import { useEffect, useState } from 'react';
-import { View } from 'react-native';
+import { useEffect, useRef, useState } from 'react';
+import { ScrollView, View } from 'react-native';
 import { back, go, swap } from '@/lib/nav';
 import { api, ApiError, appendFile } from '@/lib/api';
 import { C, R } from '@/constants/theme';
@@ -52,8 +52,41 @@ type Slot = 'MORNING' | 'LUNCH' | 'DINNER' | 'BEDTIME';
 
 /** POST /prescriptions/analyze 응답 (쓰는 칸만) */
 interface Preview {
-  drugs: { name: string; count_per_dose: number; slots: Slot[]; days: number }[];
+  drugs: { name: string; count_per_dose: number; slots: Slot[]; meal_timing: string; days: number }[];
   needs_retake: boolean;
+}
+
+/** POST /patients/me/prescriptions 응답 (쓰는 칸만) */
+interface Saved {
+  end_date: string; // YYYY-MM-DD
+  slots: { slot_date: string; slot: Slot }[]; // 날짜·시간 순
+}
+
+/** GET /patients/me/dur-warnings 응답 (쓰는 칸만). 병용금기가 맨 위로 온다 */
+interface Dur {
+  warnings: { type: string; drugs: string[]; easy_message: string }[];
+  unidentified_drugs: string[];
+  message: string;
+}
+
+/** 저장한 처방. 같은 분석 결과를 두 번 저장하지 않도록 어느 preview 를 저장했는지 함께 둔다 */
+let saved: { from: Preview; res: Saved } | null = null;
+/** p03 이 보여 줄 주의사항 */
+let dur: Dur | null = null;
+
+/** p23 '맞아요': 처방 저장 → 주의사항 조회. 주의할 게 있으면 p03, 없으면 p28 */
+async function confirmPreview(p: Preview): Promise<string> {
+  if (saved?.from !== p) saved = { from: p, res: await api.post<Saved>('/patients/me/prescriptions', { drugs: p.drugs }) };
+  dur = await api.get<Dur>('/patients/me/dur-warnings');
+  return dur.warnings.length || dur.unidentified_drugs.length ? 'p03-caution' : 'p28-start';
+}
+
+/** 저장·주의사항 실패 → 화면. 다시 해 보기는 회차 확인으로 (이미 저장했으면 저장은 건너뛴다) */
+function saveFail(x: unknown): string {
+  const status = x instanceof ApiError ? x.status : -1;
+  if (status === 400) return 'p22-unsure'; // 알 수·일수가 서버 범위 밖이거나 오늘 남은 회차가 없음 → 보호자와 같이
+  if (status === 0) return 'p15-offline?retry=p23-review';
+  return 'p15t-slow?retry=p23-review'; // 503 MFDS_UNAVAILABLE 등
 }
 
 /** 마지막 분석 결과. p12 가 받고 p23 이 보여 준다 (없으면 예시) */
@@ -160,6 +193,22 @@ export function Review() {
   const { days, rows } = summary(preview);
   const four = rows.length > 3; // 자기 전까지 네 줄이면 버튼에 닿지 않게 좁힌다
   const said = rows.map(([s, n]) => `${SLOT_ROW[s].name} ${SAY_COUNT[n] ?? n} 알`).join(', ');
+  const busy = useRef(false); // 두 번 눌러도 한 번만 저장
+  const [saving, setSaving] = useState(false);
+  const ok = async () => {
+    if (!preview) return go('p03-caution'); // 화면 목록에서 연 예시는 예전처럼
+    if (busy.current) return;
+    busy.current = true;
+    setSaving(true);
+    try {
+      go(await confirmPreview(preview));
+    } catch (x) {
+      swap(saveFail(x));
+    } finally {
+      busy.current = false;
+      setSaving(false);
+    }
+  };
   return (
     <Phone>
       <Back />
@@ -171,7 +220,7 @@ export function Review() {
       {rows.map(([s, n], i) => (
         <SlotRow key={s} i={i} top={(four ? 204 : 228) + i * (four ? 100 : 120)} pouch={SLOT_ROW[s].pouch} name={SLOT_ROW[s].name} count={`${n}알`} onPress={() => go('p23b-slot')} />
       ))}
-      <Btn two label="맞아요" onPress={() => go('p03-caution')} />
+      <Btn two label={saving ? '확인하는 중' : '맞아요'} onPress={() => void ok()} />
       <Sub label="잘 모르겠어요" onPress={() => go('p22-unsure')} />
     </Phone>
   );
@@ -200,8 +249,41 @@ const OTHER_CAUTIONS = [
   { top: 484, icon: 'pill', title: '위장약이 겹쳐요', tell: '약사에게 물어보세요' },
 ] as const;
 
-/** p03 주의사항. DUR 3종: 병용금기(맨 위, 크게) · 노인주의 · 효능군 중복. 약 조합은 예시 */
+const WARN: Record<string, { icon: IconName; title: string }> = {
+  CONCOMITANT_CONTRAINDICATION: { icon: 'triangle-alert', title: '같이 드시면 안 돼요' },
+  ELDERLY_CAUTION: { icon: 'circle-alert', title: '어르신은 조심해서 드세요' },
+  DUPLICATE_EFFICACY: { icon: 'pill', title: '비슷한 약이 겹쳐요' },
+};
+
+/** p03 서버 주의사항. 몇 건일지 몰라 버튼 위 칸에서 스크롤한다. 마지막 줄은 서버 안내(정보를 못 찾은 약 등) */
+function DurCautions({ d }: { d: Dur }) {
+  const items = d.warnings.map((w) => ({ ...(WARN[w.type] ?? { icon: 'circle-alert' as IconName, title: '주의하세요' }), drugs: w.drugs.join(' · '), tell: w.easy_message }));
+  const said = [...items.map((w) => `${w.title}. ${w.drugs}. ${w.tell}`), d.message].join(' ');
+  return (
+    <Phone>
+      <Back />
+      <Say text={said} />
+      <ScrollView style={abs({ left: 0, right: 0, top: 132, height: 540 })} contentContainerStyle={{ paddingHorizontal: 28, paddingBottom: 16, gap: 28 }}>
+        {items.map((w, i) => (
+          <View key={i} style={{ flexDirection: 'row', alignItems: 'flex-start', gap: 16 }}>
+            <Icon name={w.icon} c={C.ink2} />
+            <View style={{ flex: 1, gap: 4 }}>
+              <T k>{w.title}</T>
+              <T>{w.drugs}</T>
+              <T c={C.ink2}>{w.tell}</T>
+            </View>
+          </View>
+        ))}
+        <T c={C.ink2}>{d.message}</T>
+      </ScrollView>
+      <Btn label="알겠어요" onPress={() => go('p28-start')} />
+    </Phone>
+  );
+}
+
+/** p03 주의사항. DUR 3종: 병용금기(맨 위, 크게) · 노인주의 · 효능군 중복. 저장한 처방이 없으면(화면 목록) 예시 */
 export function CautionScreen() {
+  if (dur) return <DurCautions d={dur} />;
   const { title, drugs, tell } = PRIMARY_CAUTION;
   const guidance = [title, drugs, tell, ...OTHER_CAUTIONS.flatMap((item) => [item.title, item.tell])];
 
@@ -233,26 +315,44 @@ export function CautionScreen() {
   );
 }
 
-/** p28 일정 시작. 등록 시각이 지난 회차(오늘 아침)는 만들지 않는다 */
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const md = (date: string) => `${Number(date.slice(5, 7))}월 ${Number(date.slice(8, 10))}일`;
+/** 첫 회차 날짜를 '오늘' · '내일' · '11월 26일' 로 */
+function dayWord(date: string): string {
+  const d = new Date();
+  if (date === ymd(d)) return '오늘';
+  d.setDate(d.getDate() + 1);
+  return date === ymd(d) ? '내일' : md(date);
+}
+const TRAY_SLOTS: Slot[] = ['MORNING', 'LUNCH', 'DINNER'];
+
+/** p28 일정 시작. 등록 시각이 지난 회차(오늘 아침)는 서버가 만들지 않는다. 저장한 처방이 없으면(화면 목록) 예시 */
 export function Start() {
+  const res = saved?.res;
+  const first = res?.slots[0];
+  const day = first ? dayWord(first.slot_date) : '오늘';
+  const from = first ? `${SLOT_ROW[first.slot].name}부터` : '점심부터';
+  const until = res ? `${md(res.end_date)}까지` : '11월 26일까지';
+  const tray: ('plan' | 'none')[] = first && res ? TRAY_SLOTS.map((s) => (res.slots.some((x) => x.slot_date === first.slot_date && x.slot === s) ? 'plan' : 'none')) : ['none', 'plan', 'plan'];
+  const f = first ? TRAY_SLOTS.indexOf(first.slot) : 1; // 자기 전이면 -1 → 고른 칸 없음
   return (
     <Phone>
       <Back />
-      <Say icon text="오늘 점심부터 시작해요. 11월 26일까지 드세요." />
-      <Tray slots={['none', 'plan', 'plan']} f={1} now={0.3} />
+      <Say icon text={`${day} ${from} 시작해요. ${until} 드세요.`} />
+      <Tray slots={tray} f={f >= 0 ? f : undefined} now={0.3} />
       <Up delay={0.6}>
         <T s={32} k c={C.plan} center top={336}>
-          오늘
+          {day}
         </T>
       </Up>
       <Up delay={0.7}>
         <T s={56} k lh={1} center top={384}>
-          점심부터
+          {from}
         </T>
       </Up>
       <Up delay={0.7}>
         <T c={C.ink2} center top={472}>
-          11월 26일까지
+          {until}
         </T>
       </Up>
       <Btn up={0.85} label="시작하기" onPress={() => swap('p04-today')} />
