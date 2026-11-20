@@ -28,6 +28,7 @@ const BASE_URL = (process.env.EXPO_PUBLIC_API_URL ?? '').trim().replace(/\/+$/, 
 /** 저장된 로그인 토큰 키. 값이 있으면 요청마다 자동으로 헤더에 붙습니다. */
 export const TOKEN_KEYS = {
   guardian: 'medicare.guardian_token', // 보호자 → Authorization: Bearer <token>
+  guardianRefresh: 'medicare.guardian_refresh_token', // 보호자 토큰 갱신용 (헤더에는 안 붙음)
   device: 'medicare.device_token', // 어르신 기기 → X-Device-Token: <token>
 } as const;
 
@@ -96,8 +97,41 @@ async function toApiError(res: Response): Promise<ApiError> {
   return new ApiError(res.status, code, message);
 }
 
+let refreshing: Promise<boolean> | null = null;
+
+/** 보호자 토큰이 만료(401)되면 refresh_token 으로 새로 받습니다. 여러 요청이 한꺼번에 401 이어도 갱신은 한 번만 */
+function refreshGuardian(): Promise<boolean> {
+  if (!refreshing) {
+    refreshing = (async () => {
+      const refreshToken = await getItem(TOKEN_KEYS.guardianRefresh);
+      if (!refreshToken) return false;
+      let res: Response;
+      try {
+        res = await fetch(buildUrl('/auth/refresh'), {
+          method: 'POST',
+          headers: { Accept: 'application/json', 'Content-Type': 'application/json' },
+          body: JSON.stringify({ refresh_token: refreshToken }),
+        });
+      } catch {
+        return false; // 네트워크 오류: 토큰은 그대로 둡니다
+      }
+      if (!res.ok) {
+        // refresh_token 도 만료·폐기됨 → 다시 로그인해야 합니다
+        if (res.status === 401) await Promise.all([clearToken('guardian'), clearToken('guardianRefresh')]);
+        return false;
+      }
+      const data = (await res.json()) as { access_token: string; refresh_token: string };
+      await Promise.all([saveToken('guardian', data.access_token), saveToken('guardianRefresh', data.refresh_token)]);
+      return true;
+    })().finally(() => {
+      refreshing = null;
+    });
+  }
+  return refreshing;
+}
+
 /** 모든 요청의 기본 함수. 보통은 아래 api.get / post / patch / postForm 을 씁니다. */
-export async function request<T>(method: string, path: string, options: RequestOptions = {}): Promise<T> {
+export async function request<T>(method: string, path: string, options: RequestOptions = {}, retried = false): Promise<T> {
   const url = buildUrl(path, options.query);
   const headers: Record<string, string> = { Accept: 'application/json', ...(await authHeaders()) };
 
@@ -116,6 +150,10 @@ export async function request<T>(method: string, path: string, options: RequestO
     throw new ApiError(0, 'NETWORK_ERROR', '서버에 연결할 수 없습니다');
   }
 
+  // 보호자 토큰 만료 → 갱신 뒤 한 번만 다시 요청 (로그인·갱신 요청 자체는 제외)
+  if (res.status === 401 && !retried && !/^\/?auth\//.test(path) && (await refreshGuardian())) {
+    return request<T>(method, path, options, true);
+  }
   if (!res.ok) throw await toApiError(res);
   if (res.status === 204) return undefined as T;
   const text = await res.text();

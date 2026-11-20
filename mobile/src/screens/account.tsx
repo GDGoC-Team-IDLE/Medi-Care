@@ -2,6 +2,7 @@
 import { useRef, useState } from 'react';
 import { Share, View, type TextInputInstance } from 'react-native';
 import { go, swap, back } from '@/lib/nav';
+import { api, ApiError, clearToken, saveToken } from '@/lib/api';
 import { LINK_CODE } from '@/lib/mock';
 import { C, R } from '@/constants/theme';
 import { Icon, Phone, T, Tap, abs } from '@/components/core';
@@ -11,16 +12,39 @@ import { requestMedicationNotificationPermissions } from '@/lib/medicationNotifi
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-/** c01 보호자 로그인. POST /api/auth/login (가입은 같은 칸 + /api/auth/signup) */
+/** 로그인·가입 실패를 칸 아래 글로 */
+function loginError(x: unknown): { email?: string; pw?: string } {
+  const status = x instanceof ApiError ? x.status : -1;
+  if (status === 409) return { email: '이미 가입된 이메일이에요' };
+  if (status === 422) return { email: '이메일을 다시 봐 주세요' };
+  if (status === 401) return { pw: '이메일이나 비밀번호가 달라요' };
+  if (status === 0) return { pw: '서버에 연결하지 못했어요' };
+  return { pw: '잠시 뒤 다시 해 주세요' };
+}
+
+/** c01 보호자 로그인. POST /api/v1/auth/login (가입은 같은 칸 + /auth/signup 뒤 로그인) */
 export function Login() {
-  const [email, setEmail] = useState('minji@mail.com');
-  const [pw, setPw] = useState('12345678');
+  const [email, setEmail] = useState('');
+  const [pw, setPw] = useState('');
   const [err, setErr] = useState<{ email?: string; pw?: string }>({});
   const pwRef = useRef<TextInputInstance>(null);
-  const submit = () => {
+  const busy = useRef(false);
+  const submit = async (signup = false) => {
     const e = { email: EMAIL.test(email.trim()) ? undefined : '이메일을 다시 봐 주세요', pw: pw.length >= 8 ? undefined : '비밀번호는 8자 이상이에요' };
     setErr(e);
-    if (!e.email && !e.pw) go('c02-device');
+    if (e.email || e.pw || busy.current) return;
+    busy.current = true;
+    const user_email = email.trim();
+    try {
+      if (signup) await api.post('/auth/signup', { user_email, password: pw, user_nickname: user_email.split('@')[0].slice(0, 50) });
+      const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
+      await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
+      go('c02-device');
+    } catch (x) {
+      setErr(loginError(x));
+    } finally {
+      busy.current = false;
+    }
   };
   return (
     <Phone>
@@ -63,10 +87,10 @@ export function Login() {
         autoComplete="current-password"
         textContentType="password"
         returnKeyType="done"
-        onSubmitEditing={submit}
+        onSubmitEditing={() => void submit()}
       />
-      <Btn two label="로그인" onPress={submit} />
-      <Sub label="가입하기" onPress={submit} />
+      <Btn two label="로그인" onPress={() => void submit()} />
+      <Sub label="가입하기" onPress={() => void submit(true)} />
     </Phone>
   );
 }
@@ -86,11 +110,29 @@ export function Device() {
   );
 }
 
-/** c03 어르신 이름. POST /api/patients → 이 폰엔 X-Device-Token 만 저장 */
+/** c03 어르신 이름. POST /patients → pairing-code → /devices/pair → 이 폰엔 X-Device-Token 만 저장 */
 export function Patient() {
   const [name, setName] = useState('어머니');
   const [err, setErr] = useState<string>();
-  const submit = () => (name.trim() ? go('c04-linked') : setErr('부를 이름을 넣어 주세요'));
+  const busy = useRef(false);
+  const pid = useRef<number | null>(null); // 중간에 실패해 다시 눌러도 어르신을 두 번 만들지 않게
+  const submit = async () => {
+    if (!name.trim()) return setErr('부를 이름을 넣어 주세요');
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      pid.current ??= (await api.post<{ patient_id: number }>('/patients', { name: name.trim() })).patient_id;
+      const { pairing_code } = await api.post<{ pairing_code: string }>(`/patients/${pid.current}/pairing-code`);
+      const { device_token } = await api.post<{ device_token: string }>('/devices/pair', { code: pairing_code });
+      await saveToken('device', device_token);
+      await Promise.all([clearToken('guardian'), clearToken('guardianRefresh')]); // 이 폰엔 보호자 로그인을 남기지 않는다
+      go('c04-linked');
+    } catch (x) {
+      setErr(x instanceof ApiError && x.status === 401 ? '보호자 로그인부터 해 주세요' : '연결하지 못했어요. 다시 눌러 주세요');
+    } finally {
+      busy.current = false;
+    }
+  };
   return (
     <Phone>
       <Back />
@@ -183,14 +225,24 @@ export function Code() {
   );
 }
 
-/** c06 연결 숫자 넣기 (어르신 폰). 6자리를 다 넣으면 바로 확인한다 */
+/** c06 연결 숫자 넣기 (어르신 폰). 6자리를 다 넣으면 바로 POST /devices/pair */
 export function Pad() {
-  const [code, setCode] = useState('482');
+  const [code, setCode] = useState('');
+  const pair = async (c: string) => {
+    try {
+      const { device_token } = await api.post<{ device_token: string }>('/devices/pair', { code: c });
+      await saveToken('device', device_token);
+      swap('c04-linked');
+    } catch {
+      setCode(''); // 틀림·만료·횟수 초과 → c07 에서 '다시 넣기'로 돌아오면 빈 칸부터
+      go('c07-codebad');
+    }
+  };
   const press = (d: string) => {
     if (code.length >= 6) return;
     const next = code + d;
     setCode(next);
-    if (next.length === 6) setTimeout(() => (next === LINK_CODE ? swap('c04-linked') : go('c07-codebad')), 250);
+    if (next.length === 6) void pair(next);
   };
   const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', 'del'];
   return (
