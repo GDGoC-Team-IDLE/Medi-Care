@@ -1,6 +1,7 @@
 // 알림 · 약 없음 · 인증 촬영 · 판정 5종 · 실패/연결 없음 · 카메라 권한
 import { useEffect } from 'react';
 import { Linking, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { back, go, swap } from '@/lib/nav';
 import { GUARDIAN, call } from '@/lib/mock';
 import { C } from '@/constants/theme';
@@ -311,15 +312,22 @@ export function Unsure() {
   );
 }
 
+/** 다시 해 보기: 약봉투 등록에서 왔으면(?retry=p01-scan) 약봉투 찍기로, 아니면 인증 촬영으로 */
+function useRetry() {
+  const { retry } = useLocalSearchParams<{ retry?: string }>();
+  return () => swap(retry === 'p01-scan' ? 'p01-scan' : 'p06-shoot');
+}
+
 /** p15 연결 없음. 판정이 없으면 먹으라고 하지 않는다. 알약이 약포로 돌아가 앉는다 */
 export function Offline() {
+  const retry = useRetry();
   return (
     <Phone>
       <Back close />
       <Fig fig="pouch-noon@240" motion="am-rest" />
       <Badge icon="wifi-off" blink />
       <Verdict readAloud mv={false} title="인터넷이 안 돼요" tell="약은 봉투에 두세요" line="잠시 뒤 다시 해 보세요" />
-      <Btn two icon="refresh-cw" label="다시 해 보기" onPress={() => swap('p06-shoot')} />
+      <Btn two icon="refresh-cw" label="다시 해 보기" onPress={retry} />
       <Sub icon="phone" label={callG} onPress={call} />
     </Phone>
   );
@@ -327,13 +335,14 @@ export function Offline() {
 
 /** p15t 서버 응답이 8초를 넘을 때: 폰 화면 모서리가 깜빡이며 기다린다 */
 export function Slow() {
+  const retry = useRetry();
   return (
     <Phone>
       <Back close />
       <Fig fig="phone-shoot@240" motion="am-wait" />
       <Badge icon="clock" beat />
       <Verdict readAloud mv={false} title="오래 걸려요" tell="약은 봉투에 두세요" line="잠시 뒤 다시 해 보세요" />
-      <Btn two icon="refresh-cw" label="다시 해 보기" onPress={() => swap('p06-shoot')} />
+      <Btn two icon="refresh-cw" label="다시 해 보기" onPress={retry} />
       <Sub icon="phone" label={callG} onPress={call} />
     </Phone>
   );

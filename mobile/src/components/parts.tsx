@@ -565,6 +565,8 @@ function useShutterLock(at: number | null) {
 /** 셔터 (6판): 흰 면 원 + 검은 6 테두리 + 흰 4 바깥 선, 글자 없음. 누르면 안쪽 흰 원이 줄어든다(테두리 16) */
 /** 마지막으로 찍은 사진 uri. 다음 화면의 ScanCard(읽는 중·보는 중)가 보여 준다 */
 let shot: string | null = null;
+/** 마지막으로 찍은 사진 uri (없으면 null). 읽는 중 화면이 이 사진을 서버로 보낸다 */
+export const lastShot = () => shot;
 
 /** 찍기: 기기 카메라를 열고, 찍은 사진의 uri 를 onPress 로 넘긴다. 권한이 없으면 p14 */
 export function Shutter({ onPress, at = 1.8 }: { onPress?: (uri: string) => void; at?: number | null }) {
