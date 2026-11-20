@@ -272,11 +272,12 @@ class DoseLog(Base):
 
 
 class GuardianAlert(Base):
-    """보호자 알림 내역. 같은 회차·종류의 알림은 한 번만 만듭니다."""
+    """보호자 알림 내역. 회차 또는 사건별로 중복을 막습니다."""
 
     __tablename__ = "guardian_alerts"
     __table_args__ = (
         UniqueConstraint("dose_slot_id", "type", name="uq_guardian_alert_slot_type"),
+        Index("uq_guardian_alert_dedupe_key", "dedupe_key", unique=True),
     )
 
     id: Mapped[int] = mapped_column(primary_key=True)
@@ -286,16 +287,21 @@ class GuardianAlert(Base):
     patient_id: Mapped[int] = mapped_column(
         ForeignKey("patients.id", ondelete="CASCADE"), index=True
     )
-    dose_slot_id: Mapped[int] = mapped_column(
+    dose_slot_id: Mapped[int | None] = mapped_column(
         ForeignKey("dose_slots.id", ondelete="CASCADE"), index=True
     )
+    prescription_id: Mapped[int | None] = mapped_column(
+        ForeignKey("prescriptions.id", ondelete="CASCADE")
+    )
+    dedupe_key: Mapped[str | None] = mapped_column(String(64))
     type: Mapped[GuardianAlertType] = mapped_column(_enum(GuardianAlertType))
     title: Mapped[str] = mapped_column(String(100))
     body: Mapped[str] = mapped_column(String(500))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local, index=True)
     push_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    push_attempted_at: Mapped[datetime | None] = mapped_column(DateTime)
     push_error: Mapped[str | None] = mapped_column(String(500))
 
     guardian: Mapped[Guardian] = relationship()
     patient: Mapped[Patient] = relationship()
-    dose_slot: Mapped[DoseSlot] = relationship()
+    dose_slot: Mapped[DoseSlot | None] = relationship()
