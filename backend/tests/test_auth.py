@@ -83,6 +83,11 @@ def test_full_auth_and_device_lifecycle():
             "guardian_id": signup.json()["user_id"],
         }
 
+        legacy_patient_me = client.get(
+            "/api/v1/patient/me", headers={"X-Device-Token": device_token}
+        )
+        assert legacy_patient_me.status_code == 404
+
         refreshed = client.post(
             "/api/v1/auth/refresh",
             json={"refresh_token": tokens["refresh_token"]},

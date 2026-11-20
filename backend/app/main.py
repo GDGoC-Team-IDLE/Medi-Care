@@ -8,6 +8,7 @@ from app.core.config import get_settings
 from app.core.database import Base, engine
 from app.core.prescription_drug_schema import upgrade_prescription_drug_schema
 
+
 from app.core.wrong_dose_alert_schema import upgrade_wrong_dose_alert_schema
 from app.core.guardian_alert_schema import upgrade_guardian_alert_schema
 

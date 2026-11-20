@@ -48,6 +48,7 @@
 │   │   │   ├── pill_appearance.py # 식약처 색·모양 정규화, 알약 비교 규칙
 │   │   │   └── photo_storage.py   # 인증 사진 저장 (Supabase / 로컬)
 │   │   └── routers/
+│   │       ├── alarms.py        # 어르신별·회차별 알림 방식 설정
 │   │       ├── auth.py          # 보호자 가입·로그인·토큰·탈퇴
 │   │       ├── patients.py      # 어르신 등록·기기 연결·기기 인증
 │   │       ├── notifications.py # 보호자 푸시 토큰·15분 무응답 알림
