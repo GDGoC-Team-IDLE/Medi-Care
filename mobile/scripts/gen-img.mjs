@@ -2,13 +2,28 @@
 // - design/mockup/v6/img 의 PNG 중 목업이 쓰는 것을 assets/img 로 복사한다.
 // - 목업 화면에 직접 넣은 조각 그림(<svg class="ill ..."> 안의 <image>·<g class>)을 나무 구조로 뽑아
 //   src/constants/img.gen.ts 에 적는다. 조각 이름(vk0·ak-body 등)은 목업 CSS 의 부분 움직임 이름 그대로다.
-// 사용: npm run img [-- <design/mockup/v6 경로>]   기본 경로: ../../design/mockup/v6
+// - 고해상도: 목업 img 는 표시 크기의 2배로 줄여 둔 것이라 폰(3배 화면)에서 흐리다.
+//   npm run img:render 가 같은 Blender 도구로 가장 크게 그리는 크기의 4배로 다시 렌더한 폴더(--hires)가 있으면
+//   그 PNG 를 쓰고, 조각 자리(x·y·w·h)도 그 렌더의 .json 에서 읽는다(렌더 배율이 바뀌면 여백이 조금 달라진다).
+// 사용: npm run img [-- <design/mockup/v6 경로>] [--hires <렌더 폴더>]   기본 경로: ../../design/mockup/v6
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-const v6 = path.resolve(root, process.argv[2] ?? '../../design/mockup/v6');
+const argv = process.argv.slice(2);
+const hi = argv.indexOf('--hires');
+const hires = hi >= 0 ? path.resolve(argv[hi + 1]) : null;
+if (hi >= 0) argv.splice(hi, 2);
+const v6 = path.resolve(root, argv[0] ?? '../../design/mockup/v6');
+/** 고해상도 렌더의 조각 자리: 파일 → {x,y,w,h} (viewBox 단위) */
+const rect = {};
+if (hires)
+  for (const f of fs.readdirSync(hires).filter((f) => f.endsWith('.json'))) {
+    const man = JSON.parse(fs.readFileSync(path.join(hires, f), 'utf8'));
+    for (const r of man.runs) if (r.kind === 'img') rect[r.file] = { x: r.x, y: r.y, w: r.w, h: r.h };
+  }
+const r2 = (v) => Math.round(v * 1000) / 1000;
 const html = fs.readFileSync(path.join(v6, 'src.html'), 'utf8');
 
 // 기호로 쓰는 통짜 그림(design/tools/blender_layers.py 의 SYMBOL): 이름 → 파일 · viewBox
@@ -46,7 +61,9 @@ function tree(inner) {
       }
     } else if (tag === 'image') {
       const t = attrs(a);
-      top.kids.push({ img: t.href.replace(/^img\//, ''), x: +t.x, y: +t.y, w: +t.width, h: +t.height });
+      const img = t.href.replace(/^img\//, '');
+      const r = rect[img] ?? { x: +t.x, y: +t.y, w: +t.width, h: +t.height };
+      top.kids.push({ img, x: r2(r.x), y: r2(r.y), w: r2(r.w), h: r2(r.h) });
     } else if (!close) {
       top.kids.push({ vec: `<${tag}${a.replace(/\s*xmlns:ns0="[^"]*"/, '')}/>` });
     }
@@ -70,7 +87,16 @@ const out = path.join(root, 'assets', 'img');
 fs.rmSync(out, { recursive: true, force: true });
 fs.mkdirSync(out, { recursive: true });
 const files = [...used].sort();
-for (const f of files) fs.copyFileSync(path.join(v6, 'img', f), path.join(out, f));
+const miss = [];
+for (const f of files) {
+  const h = hires && path.join(hires, f);
+  if (h && fs.existsSync(h)) fs.copyFileSync(h, path.join(out, f));
+  else {
+    if (hires) miss.push(f);
+    fs.copyFileSync(path.join(v6, 'img', f), path.join(out, f));
+  }
+}
+if (miss.length) console.warn(`고해상도 렌더가 없어 목업 2배 그림을 씀: ${miss.join(' ')}`);
 
 const ts = `// npm run img 이 만든 파일입니다. 고치지 마세요. 원본: design/mockup/v6 (src.html · img/)
 export const PNG = {
