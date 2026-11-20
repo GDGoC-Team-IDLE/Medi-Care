@@ -20,6 +20,7 @@ EXPECTED_TABLES = {
     "pairing_codes",
     "pair_attempts",
     "guardian_alerts",
+    "dur_checks",
 }
 
 

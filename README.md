@@ -210,6 +210,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `prescription_drugs` | 처방에 포함된 약 1종 | `item_seq`(NULL 가능) → drug_info, `count_per_dose`, `slots`(JSON 배열), `meal_timing` 기본 `AFTER` |
 | `dose_slots` | 날짜별 복용 회차 1건 | UNIQUE(`prescription_id`, `slot_date`, `slot`), INDEX(`patient_id`, `slot_date`), `expected_count`, `status` 기본 `PENDING` |
 | `dose_logs` | 복용 인증 사진 1건과 판정 | `dose_slot_id` → dose_slots, `photo_path`, `ai_json`, `result` |
+| `dur_checks` | DUR 의약품 주의사항 검사 1건 | `patient_id` → patients, `prescription_ids`·`check_types`(JSON 배열), `check_status`, `warnings_json`(식약처 원문 + 쉬운 설명), `checked_at` |
 | `guardian_alerts` | 보호자 알림 내역 | `MISSED` `WELFARE_CHECK` `MEDICATION_LOW` `DOSE_NO_RESPONSE`만 UNIQUE(`dose_slot_id`, `type`) (부분 인덱스), `dose_log_id`(WRONG_DOSE 시도) → dose_logs, `push_sent_at`, `push_error` |
 
 - 열거형 ([app/enums.py](backend/app/enums.py)) 값은 대문자 문자열로 저장됩니다 (DB 타입은 VARCHAR, PostgreSQL ENUM 타입 미사용 → 값 추가 시 ALTER 불필요).
