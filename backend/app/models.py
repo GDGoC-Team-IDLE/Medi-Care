@@ -225,6 +225,7 @@ class PrescriptionDrug(Base):
     item_seq: Mapped[str | None] = mapped_column(ForeignKey("drug_info.item_seq"))  # 매칭 실패 시 NULL
     drug_name: Mapped[str] = mapped_column(String(255))  # 처방전에 적힌 이름
     count_per_dose: Mapped[int] = mapped_column(Integer)  # 1회 복용 개수
+    days: Mapped[int | None] = mapped_column(Integer)  # 기존 약은 처방 일수를 사용합니다.
     slots: Mapped[list[str]] = mapped_column(JSONColumn)  # 복용 회차 목록, 예: ["MORNING", "DINNER"]
     meal_timing: Mapped[MealTiming] = mapped_column(
         _enum(MealTiming), default=MealTiming.AFTER, server_default=MealTiming.AFTER.value
