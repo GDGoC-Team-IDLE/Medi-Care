@@ -83,6 +83,6 @@ export const FLOWS: Flow[] = [
   },
   {
     name: '마이페이지 (보호자)',
-    screens: [s('g20-mypage', '마이페이지', M.MyPage), s('g21-addpatient', '어르신 등록', M.AddPatient), s('g04-code', '연결 숫자', A.Code), s('g22-patients', '어르신 고르기', M.Patients), s('c08-calendar', '어르신 달력', G.Calendar)],
+    screens: [s('g20-mypage', '마이페이지', M.MyPage), s('c03-patient', '어르신 등록', A.Patient), s('g04-code', '연결 숫자', A.Code), s('g22-patients', '어르신 고르기', M.Patients), s('c08-calendar', '어르신 달력', G.Calendar)],
   },
 ];
