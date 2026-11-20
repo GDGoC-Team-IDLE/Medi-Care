@@ -43,6 +43,8 @@ class Settings(BaseSettings):
     # Render 서버 디스크는 재시작·재배포 때 지워지므로 운영 사진은 Supabase 에 저장합니다.
     upload_dir: str = "/app/uploads"
     max_upload_mb: int = 10
+    # 시연용: true 면 오늘이 아닌 회차(내일 등)도 복약 인증을 받습니다. 운영에서는 끕니다 (DEMO_ANY_DAY)
+    demo_any_day: bool = False
 
     # ── CORS ──
     # 다른 주소에서 API 를 부를 때 허용할 출처. 쉼표로 여러 개.

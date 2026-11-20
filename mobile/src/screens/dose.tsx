@@ -184,8 +184,9 @@ let verdict: Verify | null = null;
  * 오늘 회차 중 찍을 회차. 알림에서 온 slot_id 가 있으면 그 회차, 없으면 지금 시각에 가장 가까운 회차.
  * 이미 드신 회차도 고른다 → 같은 약을 또 찍으면 서버가 ALREADY_TAKEN 으로 두 번 먹기를 막는다. 회차가 없으면 null
  */
-async function pickTarget(slotId?: number) {
-  const { slots } = await api.get<{ slots: TodaySlot[] }>('/patients/me/dose-slots');
+async function pickTarget(slotId?: number, date?: string) {
+  // date: p19 '다음 시간대로 이동'(시연)으로 내일 이후 회차를 찍을 때 그날 목록에서 찾는다
+  const { slots } = await api.get<{ slots: TodaySlot[] }>('/patients/me/dose-slots', date ? { date } : undefined);
   if (!slots.length) return null;
   const at = (s: TodaySlot) => new Date(s.scheduled_at).getTime();
   const sorted = [...slots].sort((a, b) => at(a) - at(b));
@@ -197,12 +198,12 @@ async function pickTarget(slotId?: number) {
 
 /** p06 인증 촬영. 흰 점선 = 놓을 자리(위 약포, 아래 손바닥). 열 때 찍을 회차를 받아 제목에 쓴다 (못 받으면 예시) */
 export function Shoot() {
-  const { slot_id } = useLocalSearchParams<{ slot_id?: string }>();
+  const { slot_id, date } = useLocalSearchParams<{ slot_id?: string; date?: string }>();
   const [head, setHead] = useState<{ icon: IconName; title: string; say: string } | null>(null);
   useEffect(() => {
     target = null;
     let live = true;
-    pickTarget(Number(slot_id) || undefined).then(
+    pickTarget(Number(slot_id) || undefined, date).then(
       (t) => {
         target = t;
         if (!live) return;
@@ -215,7 +216,7 @@ export function Shoot() {
     return () => {
       live = false;
     };
-  }, [slot_id]);
+  }, [slot_id, date]);
   return (
     <Phone bg={C.cam} fg={C.white}>
       <Back close onPress={() => swap('p04-today')} />

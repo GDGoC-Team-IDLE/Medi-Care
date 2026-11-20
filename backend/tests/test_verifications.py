@@ -170,6 +170,19 @@ def alert_rows(slot_id: int) -> list[GuardianAlert]:
 # ── 응답 예시별 ──
 
 
+def test_demo_any_day_verifies_tomorrow_slot(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    tomorrow = make_slot([WHITE_ROUND], days_ago=-1)
+    use_ai(ai(pills=[pill(["하양"], "원형")]))
+
+    # 기본: 오늘이 아닌 회차는 받지 않는다
+    assert_error(post_photo(client, tomorrow), 409, "SLOT_NOT_TODAY")
+    # 시연 설정(DEMO_ANY_DAY): 내일 회차도 인증된다
+    monkeypatch.setattr(get_settings(), "demo_any_day", True)
+    res = post_photo(client, tomorrow)
+    assert res.status_code == 200, res.text
+    assert res.json()["result"] == "OK"
+
+
 def test_ok_when_colors_and_shapes_match(client: TestClient):
     s = make_slot([WHITE_ROUND, YELLOW_OVAL])
     use_ai(ai(pills=[pill(["하양"], "원형"), pill(["노랑"], "타원형")]))
