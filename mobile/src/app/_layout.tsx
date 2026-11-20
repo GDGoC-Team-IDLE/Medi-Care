@@ -1,15 +1,12 @@
 import { Stack } from 'expo-router';
+import { SafeAreaProvider } from 'react-native-safe-area-context';
+import { C } from '@/constants/theme';
 
-import { colors } from '@/constants/theme';
-
-export default function RootLayout() {
-  // 시작 화면은 헤더 없이, patient/ guardian/ 은 각자 _layout 에서 헤더를 그립니다.
+export default function Layout() {
   return (
-    <Stack
-      screenOptions={{
-        headerShown: false,
-        contentStyle: { backgroundColor: colors.background },
-      }}
-    />
+    <SafeAreaProvider>
+      {/* 화면마다 글·버튼 자리가 같아서 밀기보다 겹쳐 바뀌는 쪽이 덜 흔들린다. 내용이 올라오는 움직임은 Phone 이 한다. */}
+      <Stack screenOptions={{ headerShown: false, animation: 'fade', animationDuration: 180, contentStyle: { backgroundColor: C.paper } }} />
+    </SafeAreaProvider>
   );
 }

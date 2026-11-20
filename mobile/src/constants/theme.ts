@@ -41,3 +41,29 @@ export const spacing = {
 } as const;
 
 export const theme = { colors, fontSize, sizes, spacing } as const;
+
+/**
+ * 목업 5판(design/mockup)의 디자인 토큰. 목업을 옮긴 화면(src/screens)과 부품(src/components)이 씁니다.
+ */
+export const C = {
+  paper: '#FAFAFA',
+  ink: '#171717',
+  ink2: '#555555',
+  line: '#DADADA',
+  tint: '#F0F0F0',
+  plan: '#737373',
+  track: '#858585',
+  sun: '#FFC421',
+  ok: '#0E5F35',
+  miss: '#C2570A',
+  misst: '#B8500A',
+  wrong: '#B3123B',
+  night: '#121212',
+  nightt: '#BDBDBD',
+  cam: '#111111',
+  white: '#FFFFFF',
+} as const;
+
+/** 목업 기준 화면 크기. 좌표는 이 크기 위의 값이고 Phone(src/components/core.tsx)이 기기에 맞춰 늘립니다. */
+export const W = 390;
+export const H = 844;
