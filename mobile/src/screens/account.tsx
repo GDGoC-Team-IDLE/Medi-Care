@@ -1,9 +1,8 @@
-// 계정 (보호자 이메일 로그인 → "어르신 폰으로 쓰기") · 연결 숫자(별안)
-import { useRef, useState } from 'react';
+// 계정: 누가 쓸 폰인가요(c02) → 보호자 폰은 로그인 → 어르신 이름(c03) → 연결 숫자(g04) / 어르신 폰은 연결 숫자 넣기(c06)
+import { useEffect, useRef, useState } from 'react';
 import { Share, View, type TextInputInstance } from 'react-native';
 import { go, swap, back } from '@/lib/nav';
-import { api, ApiError, clearToken, saveToken } from '@/lib/api';
-import { LINK_CODE } from '@/lib/mock';
+import { api, ApiError, saveToken } from '@/lib/api';
 import { C, R } from '@/constants/theme';
 import { Icon, Phone, T, Tap, abs } from '@/components/core';
 import { Field } from '@/components/field';
@@ -38,7 +37,9 @@ export function Login() {
     try {
       const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
       await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
-      go('c02-device');
+      // 어르신이 아직 없으면 이름부터(c03 → g04 연결 숫자), 있으면 보호자 현황으로
+      const { patients } = await api.get<{ patients: unknown[] }>('/patients');
+      go(patients.length ? 'g08-empty' : 'c03-patient');
     } catch (x) {
       setErr(loginError(x));
     } finally {
@@ -122,7 +123,7 @@ export function Signup() {
       await api.post('/auth/signup', { user_email, password: pw, user_nickname: n });
       const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
       await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
-      go('c02-device');
+      go('c03-patient'); // 막 가입한 보호자는 어르신이 없다
     } catch (x) {
       setErr(loginError(x));
     } finally {
@@ -206,32 +207,33 @@ export function Device() {
       {/* 목업 3D 폰: 몸을 돌려 들어와 좌우로 천천히 흔들리며 둥실 */}
       <Phone3D left={115} top={172} ry={-30} sw={22} />
       <Verdict mv={false} title="누가 쓸 폰인가요?" />
-      <Btn two label="어르신 폰으로 쓰기" onPress={() => go('c03-patient')} />
-      {/* 처음 로그인한 보호자 폰: 복용 기록이 있는 현황이 아니라 약이 아직 없는 현황으로 */}
-      <Sub label="내 폰으로 쓰기" onPress={() => swap('g08-empty')} />
+      {/* 어르신 폰은 로그인 없이 보호자 폰에 뜬 연결 숫자만 넣는다 */}
+      <Btn two label="어르신 폰으로 쓰기" onPress={() => go('c06-pad')} />
+      {/* 보호자 폰은 로그인 → 어르신이 없으면 c03 이름 → g04 연결 숫자 */}
+      <Sub label="내 폰으로 쓰기" onPress={() => go('c01-login')} />
     </Phone>
   );
 }
 
-/** c03 어르신 이름. POST /patients → pairing-code → /devices/pair → 이 폰엔 X-Device-Token 만 저장 */
+/** c03 에서 만든 어르신. g04 가 이 어르신의 연결 숫자를 받는다 */
+let newPatient: number | null = null;
+
+/** c03 어르신 이름 (보호자 폰). POST /patients 로 어르신을 만들고 g04 연결 숫자로 */
 export function Patient() {
   const [name, setName] = useState('어머니');
   const [err, setErr] = useState<string>();
   const busy = useRef(false);
-  const pid = useRef<number | null>(null); // 중간에 실패해 다시 눌러도 어르신을 두 번 만들지 않게
+  const pid = useRef<number | null>(null); // 다시 눌러도 어르신을 두 번 만들지 않게
   const submit = async () => {
     if (!name.trim()) return setErr('부를 이름을 넣어 주세요');
     if (busy.current) return;
     busy.current = true;
     try {
       pid.current ??= (await api.post<{ patient_id: number }>('/patients', { name: name.trim() })).patient_id;
-      const { pairing_code } = await api.post<{ pairing_code: string }>(`/patients/${pid.current}/pairing-code`);
-      const { device_token } = await api.post<{ device_token: string }>('/devices/pair', { code: pairing_code });
-      await saveToken('device', device_token);
-      await Promise.all([clearToken('guardian'), clearToken('guardianRefresh')]); // 이 폰엔 보호자 로그인을 남기지 않는다
-      go('c04-linked');
+      newPatient = pid.current;
+      go('g04-code');
     } catch (x) {
-      setErr(x instanceof ApiError && x.status === 401 ? '보호자 로그인부터 해 주세요' : '연결하지 못했어요. 다시 눌러 주세요');
+      setErr(x instanceof ApiError && x.status === 401 ? '보호자 로그인부터 해 주세요' : '만들지 못했어요. 다시 눌러 주세요');
     } finally {
       busy.current = false;
     }
@@ -266,7 +268,7 @@ export function Patient() {
   );
 }
 
-/** c04 연결됐어요. 보호자 로그인 정보는 이 폰에 남지 않는다 */
+/** c04 연결됐어요 (어르신 폰). 로그인 없이 연결 숫자로 연결됐다 */
 export function Linked() {
   return (
     <Phone>
@@ -274,7 +276,7 @@ export function Linked() {
       <Phone3D left={55} top={172} ry={34} sw={-18} enter="l" />
       <Phone3D left={175} top={172} ry={-34} r0={75} sw={18} pills ring enter="r" />
       <Badge icon="link" top={172} delay={0.6} />
-      <Verdict mv={false} title="연결됐어요" tell="앱을 열면 바로 약 화면이에요" line="보호자 로그인은 남지 않아요" />
+      <Verdict mv={false} title="연결됐어요" tell="앱을 열면 바로 약 화면이에요" line="약은 보호자가 등록해요" />
       <Btn label="다음" onPress={() => go('c05-notify')} />
     </Phone>
   );
@@ -297,22 +299,44 @@ export function Notify() {
   );
 }
 
-/** g04 연결 숫자 (보호자 폰) */
+/**
+ * g04 연결 숫자 (보호자 폰). 열 때마다 POST /patients/{id}/pairing-code 로 새 숫자(5분)를 받는다.
+ * 어르신: c03 에서 만든 어르신, 없으면 연결 안 된 첫 어르신. 목업에 다음 버튼이 없어 ‹ 를 누르면 g08
+ */
 export function Code() {
-  const shown = `${LINK_CODE.slice(0, 3)} ${LINK_CODE.slice(3)}`;
+  const [code, setCode] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    (async () => {
+      let id = newPatient;
+      if (id == null) {
+        const { patients } = await api.get<{ patients: { patient_id: number; paired: boolean }[] }>('/patients');
+        id = (patients.find((p) => !p.paired) ?? patients[0])?.patient_id ?? null;
+      }
+      if (id == null) return swap('c03-patient'); // 어르신이 없으면 이름부터
+      const { pairing_code } = await api.post<{ pairing_code: string }>(`/patients/${id}/pairing-code`);
+      if (live) setCode(pairing_code);
+    })().catch(() => live && setFailed(true));
+    return () => {
+      live = false;
+    };
+  }, []);
+  const shown = code ? `${code.slice(0, 3)} ${code.slice(3)}` : '··· ···';
   return (
     <Phone>
-      <Back />
+      <Back onPress={() => swap('g08-empty')} />
       <T h left={28} top={132}>
         연결 숫자
       </T>
-      <T s={20} c={C.ink2} left={28} right={28} top={186}>
-        어르신 폰에 이 숫자를 넣어요
+      <T s={20} c={failed ? C.wrong : C.ink2} left={28} right={28} top={186}>
+        {failed ? '숫자를 받지 못했어요. 다시 열어 주세요' : '어르신 폰에 이 숫자를 넣어요'}
       </T>
       <T s={56} num left={28} top={260} style={{ letterSpacing: 0.04 * 56 }}>
         {shown}
       </T>
       <Tap
+        disabled={!code}
         onPress={() => Share.share({ message: `약 알림 연결 숫자: ${shown}` }).catch(() => {})}
         style={[
           abs({ left: 28, right: 28, top: 730, height: 64 }),
