@@ -54,6 +54,7 @@ class GuardianAlertType(StrEnum):
     # MISSED(예정 시각 + 60분)와 구분되는 단계적 알림의 15분 무응답 이벤트입니다.
     DOSE_NO_RESPONSE = "DOSE_NO_RESPONSE"
     # 복약 인증 결과가 ALREADY_TAKEN / WRONG_TIME / COUNT_MISMATCH 일 때 인증 API 가 바로 보냅니다.
+
     WRONG_DOSE = "WRONG_DOSE"
     MISSED = "MISSED"
     WELFARE_CHECK = "WELFARE_CHECK"
