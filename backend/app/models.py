@@ -188,6 +188,27 @@ class Prescription(Base):
     dose_slots: Mapped[list["DoseSlot"]] = relationship(
         back_populates="prescription", cascade="all, delete-orphan"
     )
+    guardian_notification: Mapped["GuardianNotification | None"] = relationship(
+        back_populates="prescription", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class GuardianNotification(Base):
+    """처방별 약 소진 알림과 푸시 요청 상태."""
+
+    __tablename__ = "guardian_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prescription_id: Mapped[int] = mapped_column(
+        ForeignKey("prescriptions.id", ondelete="CASCADE"), unique=True
+    )
+    depletion_date: Mapped[date] = mapped_column(Date)
+    days_remaining: Mapped[int] = mapped_column(Integer)
+    detected_at: Mapped[datetime] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(10), default="QUEUED", server_default="QUEUED")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+    prescription: Mapped[Prescription] = relationship(back_populates="guardian_notification")
 
 
 class PrescriptionDrug(Base):

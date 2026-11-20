@@ -53,6 +53,8 @@ class Settings(BaseSettings):
     # ── 주기 작업 ──
     # 외부 크론(cron-job.org)이 POST /api/v1/internal/tick 을 부를 때 X-Cron-Secret 헤더로 보내는 값
     cron_secret: str = ""
+    internal_token: str = ""  # 보호자 알림 API 호출용 Bearer 토큰
+    expo_access_token: str = ""  # Expo Push 보안이 활성화된 프로젝트에서 사용
 
     # ── 인증 ──
     # 운영에서는 반드시 긴 무작위 문자열을 사용합니다.
