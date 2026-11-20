@@ -324,8 +324,9 @@ export function Notify() {
   return (
     <Phone>
       <Back />
-      {/* 받게 될 알림 모양을 미리 보여 준다: 회색 판 없이 p17 카드 하나가 위에서 내려온다 */}
-      <PillNoti preview when="지금" title="점심 2알" top={120} />
+      {/* 받게 될 알림 모양을 미리 보여 준다: 회색 판 없이 p17 카드 하나가 위에서 내려온다.
+          연결 직후엔 약이 아직 없을 수 있어서 회차 · 알 수 없이 모양만 보여 준다(목업 예시 '점심 2알'은 등록된 약처럼 보여 뺌) */}
+      <PillNoti preview when="예시" title="약 드실 시간" top={120} />
       <Verdict readAloud mv={false} title="알림을 켜 주세요" top={508} tell="약 드실 때 이렇게 알려요" tellTop={562} />
       <Btn icon="bell-ring" label="알림 켜기" onPress={() => void enable()} />
     </Phone>
