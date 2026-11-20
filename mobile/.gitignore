@@ -39,3 +39,6 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+
+# Blender 고해상도 렌더 (npm run img:render)
+.img-hires/

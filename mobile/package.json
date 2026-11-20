@@ -38,7 +38,8 @@
     "build:web": "expo export -p web",
     "assets": "node scripts/gen-assets.mjs",
     "img": "node scripts/gen-img.mjs",
-    "lint": "expo lint"
+    "lint": "expo lint",
+    "img:render": "zsh scripts/render-img.sh"
   },
   "private": true
 }

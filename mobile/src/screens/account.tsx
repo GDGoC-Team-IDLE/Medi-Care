@@ -22,21 +22,20 @@ function loginError(x: unknown): { email?: string; pw?: string } {
   return { pw: '잠시 뒤 다시 해 주세요' };
 }
 
-/** c01 보호자 로그인. POST /api/v1/auth/login (가입은 같은 칸 + /auth/signup 뒤 로그인) */
+/** c01 보호자 로그인. POST /api/v1/auth/login (가입은 c01s) */
 export function Login() {
   const [email, setEmail] = useState('');
   const [pw, setPw] = useState('');
   const [err, setErr] = useState<{ email?: string; pw?: string }>({});
   const pwRef = useRef<TextInputInstance>(null);
   const busy = useRef(false);
-  const submit = async (signup = false) => {
+  const submit = async () => {
     const e = { email: EMAIL.test(email.trim()) ? undefined : '이메일을 다시 봐 주세요', pw: pw.length >= 8 ? undefined : '비밀번호는 8자 이상이에요' };
     setErr(e);
     if (e.email || e.pw || busy.current) return;
     busy.current = true;
     const user_email = email.trim();
     try {
-      if (signup) await api.post('/auth/signup', { user_email, password: pw, user_nickname: user_email.split('@')[0].slice(0, 50) });
       const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
       await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
       go('c02-device');
@@ -90,7 +89,111 @@ export function Login() {
         onSubmitEditing={() => void submit()}
       />
       <Btn two label="로그인" onPress={() => void submit()} />
-      <Sub label="가입하기" onPress={() => void submit(true)} />
+      <Sub label="가입하기" onPress={() => go('c01s-signup')} />
+    </Phone>
+  );
+}
+
+/**
+ * c01s 보호자 가입. POST /api/v1/auth/signup (user_email · password 8~128자 · user_nickname 1~50자) → 이어서 로그인해 토큰을 저장하고 c02.
+ * 목업에 따로 없는 화면이라 c01 틀(제목 · 설명 · 칸 120 간격 · 두 버튼)을 그대로 쓴다.
+ * 이름은 어르신 화면에 보일 이름(예: "딸에게 알렸어요")이라 c03 처럼 '부를 이름'으로 묻는다.
+ */
+export function Signup() {
+  const [name, setName] = useState('');
+  const [email, setEmail] = useState('');
+  const [pw, setPw] = useState('');
+  const [err, setErr] = useState<{ name?: string; email?: string; pw?: string }>({});
+  const emailRef = useRef<TextInputInstance>(null);
+  const pwRef = useRef<TextInputInstance>(null);
+  const busy = useRef(false);
+  const submit = async () => {
+    const n = name.trim();
+    const e = {
+      name: !n ? '부를 이름을 넣어 주세요' : n.length > 50 ? '이름은 50자까지예요' : undefined,
+      email: EMAIL.test(email.trim()) ? undefined : '이메일을 다시 봐 주세요',
+      pw: pw.length < 8 ? '비밀번호는 8자 이상이에요' : pw.length > 128 ? '비밀번호는 128자까지예요' : undefined,
+    };
+    setErr(e);
+    if (e.name || e.email || e.pw || busy.current) return;
+    busy.current = true;
+    const user_email = email.trim();
+    try {
+      await api.post('/auth/signup', { user_email, password: pw, user_nickname: n });
+      const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
+      await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
+      go('c02-device');
+    } catch (x) {
+      setErr(loginError(x));
+    } finally {
+      busy.current = false;
+    }
+  };
+  return (
+    <Phone>
+      <Back />
+      <T h left={28} top={132}>
+        보호자 가입
+      </T>
+      <T c={C.ink2} left={28} right={28} top={186}>
+        부모님 화면에 이 이름으로 보여요
+      </T>
+      <Field
+        label="부를 이름"
+        top={256}
+        value={name}
+        error={err.name}
+        onChangeText={(v) => {
+          setName(v);
+          setErr({ ...err, name: undefined });
+        }}
+        placeholder="딸"
+        maxLength={50}
+        autoComplete="name"
+        textContentType="name"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => emailRef.current?.focus()}
+      />
+      <Field
+        inputRef={emailRef}
+        label="이메일"
+        top={376}
+        value={email}
+        error={err.email}
+        onChangeText={(v) => {
+          setEmail(v);
+          setErr({ ...err, email: undefined });
+        }}
+        placeholder="name@mail.com"
+        keyboardType="email-address"
+        inputMode="email"
+        autoComplete="email"
+        textContentType="emailAddress"
+        returnKeyType="next"
+        submitBehavior="submit"
+        onSubmitEditing={() => pwRef.current?.focus()}
+      />
+      <Field
+        secret
+        inputRef={pwRef}
+        label="비밀번호"
+        top={496}
+        value={pw}
+        error={err.pw}
+        onChangeText={(v) => {
+          setPw(v);
+          setErr({ ...err, pw: undefined });
+        }}
+        placeholder="8자 이상"
+        maxLength={128}
+        autoComplete="new-password"
+        textContentType="newPassword"
+        returnKeyType="done"
+        onSubmitEditing={() => void submit()}
+      />
+      <Btn two label="가입하기" onPress={() => void submit()} />
+      <Sub label="로그인" onPress={back} />
     </Phone>
   );
 }
