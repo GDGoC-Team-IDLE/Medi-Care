@@ -18,6 +18,7 @@ EXPECTED_TABLES = {
     "revoked_access_tokens",
     "pairing_codes",
     "pair_attempts",
+    "guardian_alerts",
 }
 
 
