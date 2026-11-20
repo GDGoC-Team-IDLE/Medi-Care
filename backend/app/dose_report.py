@@ -11,6 +11,7 @@ from app.models import DoseLog, DoseSlot, Prescription, PrescriptionDrug
 
 WRONG_MESSAGES = {
     VerifyResult.COUNT_MISMATCH: "알약 개수가 등록된 개수와 달랐어요.",
+    VerifyResult.APPEARANCE_MISMATCH: "등록된 약과 알약 색·모양이 달랐어요.",
     VerifyResult.WRONG_TIME: "등록된 복용 시간과 달랐어요.",
     VerifyResult.ALREADY_TAKEN: "이미 인증한 회차의 약을 다시 인증하려고 했어요.",
 }
