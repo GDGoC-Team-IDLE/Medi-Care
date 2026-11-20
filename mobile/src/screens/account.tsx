@@ -9,12 +9,14 @@ import { Field } from '@/components/field';
 import { Back, Badge, Btn, Phone3D, PillNoti, Sub, Verdict } from '@/components/parts';
 import { requestMedicationNotificationPermissions } from '@/lib/medicationNotifications';
 import { isWeb } from '@/lib/platform';
+import { setCurrentPatient } from '@/lib/currentPatient';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 /** 이 폰을 보호자 폰으로: 예전 어르신 기기 토큰이 남아 있으면 약봉투 등록이 그 기기의 어르신(me)에게 저장된다 */
+// 예전 계정에서 고른 '지금 어르신'(마이페이지)도 지운다: 남아 있으면 달력·머리줄이 남의 어르신을 가리켜 403
 const saveGuardian = (t: { access_token: string; refresh_token: string }) =>
-  Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token), clearToken('device')]);
+  Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token), clearToken('device'), setCurrentPatient(null)]);
 
 /** 로그인·가입 실패를 칸 아래 글로 */
 function loginError(x: unknown): { email?: string; pw?: string } {
@@ -26,7 +28,7 @@ function loginError(x: unknown): { email?: string; pw?: string } {
   return { pw: '잠시 뒤 다시 해 주세요' };
 }
 
-type PatientRow = { patient_id: number; paired: boolean };
+type PatientRow = { patient_id: number; name: string; paired: boolean };
 
 /**
  * 보호자 로그인 뒤 갈 곳. 어르신 없음 → c03 이름 / 어르신 폰이 아직 연결 안 됨 → g04 연결 숫자 /
@@ -35,8 +37,10 @@ type PatientRow = { patient_id: number; paired: boolean };
 async function guardianHome(): Promise<string> {
   const { patients } = await api.get<{ patients: PatientRow[] }>('/patients');
   if (!patients.length) return 'c03-patient';
+  // '지금 어르신'(머리줄 이름 · 달력 · 약봉투 등록)을 폰이 연결된 어르신 중 가장 최근으로
+  const first = [...patients].reverse().find((p) => p.paired) ?? patients[0];
+  await setCurrentPatient({ patient_id: first.patient_id, name: first.name });
   if (!patients.some((p) => p.paired)) return 'g04-code';
-  const first = patients.find((p) => p.paired) ?? patients[0];
   const { prescriptions } = await api.get<{ prescriptions: unknown[] }>(`/patients/${first.patient_id}/prescriptions`);
   return prescriptions.length ? 'g01-today' : 'g08-empty';
 }
@@ -258,6 +262,7 @@ export function Patient() {
       pid.current ??= (await api.post<{ patient_id: number }>('/patients', { name: name.trim() })).patient_id;
       newPatient = pid.current;
       codeFor = { name: name.trim() };
+      await setCurrentPatient({ patient_id: pid.current, name: name.trim() }); // 새로 만든 어르신이 '지금 어르신'
       go('g04-code');
     } catch (x) {
       setErr(x instanceof ApiError && x.status === 401 ? '보호자 로그인부터 해 주세요' : '만들지 못했어요. 다시 눌러 주세요');

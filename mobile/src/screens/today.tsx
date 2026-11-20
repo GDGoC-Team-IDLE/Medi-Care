@@ -305,7 +305,8 @@ const dateAfter = (n: number) => {
 async function loadDays(from: number, count: number): Promise<Step[]> {
   const dates = Array.from({ length: count }, (_, i) => dateAfter(from + i));
   const days = await Promise.all(dates.map((date) => api.get<{ slots: TodaySlot[] }>('/patients/me/dose-slots', { date }).then((r) => ({ date, slots: r.slots }))));
-  return days.flatMap((d) => groups(d.date, d.slots, d.slots, false));
+  // 이미 인증한 회차는 건너뛴다 → 시연 중 찍고 돌아와 다시 누르면 그다음 회차로
+  return days.flatMap((d) => groups(d.date, d.slots, d.slots.filter((s) => s.status !== 'DONE'), false));
 }
 
 /** 복용 중인 처방이 가장 늦게 끝나는 날. 모르면 일주일 뒤까지만 */
@@ -378,47 +379,30 @@ export function Wait() {
     const name = SLOT_ROW[cur.time].name;
     const f = TRAY_TIMES.indexOf(cur.time); // 자기 전은 약통 칸이 없어 -1
     const tray = trayOf(cur.day);
-    if (cur.today) {
-      // 오늘 회차: 지금 드실 회차로. 찍을 봉투 하나(회차 하나)의 알 수 · 식전/식후
-      const first = cur.slots[0];
-      const k = first.expected_count;
-      const m = MEAL[first.drugs[0]?.meal_timing ?? 'AFTER'];
-      return (
-        <Phone key={`step-${step}`}>
-          <Say icon text={`${name} 약 드실 시간이에요. ${m} ${SAY_COUNT[k] ?? k} 알. 드시기 전에 사진을 찍어 주세요.`} />
-          <Tray slots={tray} f={f >= 0 ? f : undefined} cur={f >= 0 ? f : undefined} now={f >= 0 ? 0.62 : 1} />
-          <Up delay={0.6}>
-            <T s={84} num center top={360}>
-              {name}
-            </T>
-          </Up>
-          <Pills pills={first.drugs.slice(0, 4).map((_, i) => PILL_ILLS[i % PILL_ILLS.length])} count={`${k}알`} meal={m} />
-          <Btn up={0.85} two icon="camera" label="찍기" onPress={() => go(`p06-shoot?slot_id=${first.slot_id}`)} />
-          {move}
-        </Phone>
-      );
-    }
-    // 내일 이후 회차: 보여 주기만 (그 시간대 알 수 합)
-    const n = cur.slots.reduce((sum, s) => sum + s.expected_count, 0);
-    const drugs = cur.slots.flatMap((s) => s.drugs);
-    const m = MEAL[drugs[0]?.meal_timing ?? 'AFTER'];
-    const when = dayWord(cur.date);
+    // 넘어간 회차는 오늘이든 내일 이후든 '지금 드실 약'으로: 찍을 봉투 하나(회차 하나)의 알 수 · 식전/식후.
+    // 내일 이후 회차 인증은 서버 시연 설정(DEMO_ANY_DAY)이 켜져 있어야 받는다
+    const first = cur.slots[0];
+    const k = first.expected_count;
+    const m = MEAL[first.drugs[0]?.meal_timing ?? 'AFTER'];
+    const when = cur.today ? '' : dayWord(cur.date);
     return (
       <Phone key={`step-${step}`}>
-        <Say icon text={`${when} ${name} 약은 ${m} ${SAY_COUNT[n] ?? n} 알이에요.`} />
-        <Tray slots={tray} f={f >= 0 ? f : undefined} now={f >= 0 ? 0.62 : 1} />
+        <Say icon text={`${when ? `${when} ` : ''}${name} 약 드실 시간이에요. ${m} ${SAY_COUNT[k] ?? k} 알. 드시기 전에 사진을 찍어 주세요.`} />
+        <Tray slots={tray} f={f >= 0 ? f : undefined} cur={f >= 0 ? f : undefined} now={f >= 0 ? 0.62 : 1} />
+        {!!when && (
+          <Up delay={0.5}>
+            <T s={32} k center top={312}>
+              {when}
+            </T>
+          </Up>
+        )}
         <Up delay={0.6}>
-          <T s={32} k c={C.plan} center top={336}>
-            {when}
-          </T>
-        </Up>
-        <Up delay={0.7}>
-          <T s={84} num c={C.plan} center top={380}>
+          <T s={84} num center top={360}>
             {name}
           </T>
         </Up>
-        <Pills pills={drugs.slice(0, 4).map((_, i) => PILL_ILLS[i % PILL_ILLS.length])} count={`${n}알`} meal={m} />
-        {seeToday}
+        <Pills pills={first.drugs.slice(0, 4).map((_, i) => PILL_ILLS[i % PILL_ILLS.length])} count={`${k}알`} meal={m} />
+        <Btn up={0.85} two icon="camera" label="찍기" onPress={() => go(`p06-shoot?slot_id=${first.slot_id}&date=${cur.date}`)} />
         {move}
       </Phone>
     );

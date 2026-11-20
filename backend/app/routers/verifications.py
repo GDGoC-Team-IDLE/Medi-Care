@@ -317,7 +317,7 @@ def verify_dose(
     if slot.patient_id != patient.id:
         raise _error("FORBIDDEN")
     now = now_local()
-    if slot.slot_date != now.date():
+    if slot.slot_date != now.date() and not get_settings().demo_any_day:  # 시연 설정이면 다른 날 회차도 받음
         raise _error("SLOT_NOT_TODAY")
     photo, mime_type = read_photo(image, limit_mb=get_settings().max_upload_mb)
 
