@@ -38,6 +38,8 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""  # 서버 전용 키. 앱·웹 코드에 절대 넣지 않습니다.
     supabase_bucket: str = "dose-photos"
 
+    gemini_api_key: str = ""  # 보호자 리포트의 복약 기록 요약
+
     # ── 로컬 파일 저장 (로컬 테스트용) ──
     # Render 서버 디스크는 재시작·재배포 때 지워지므로 운영 사진은 Supabase 에 저장합니다.
     upload_dir: str = "/app/uploads"
