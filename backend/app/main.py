@@ -10,6 +10,7 @@ from app.core.database import Base, engine
 from app.routers import auth
 from app.routers import dose_status
 from app.routers import health
+from app.routers import notifications
 from app.routers import patients
 # from app.routers import auth, health, notifications, patients
 # from app.routers import auth, dose_status, health, patients, verifications
@@ -38,6 +39,7 @@ app.add_middleware(
 app.include_router(health.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(patients.router, prefix=API_PREFIX)
+app.include_router(dose_status.router, prefix=API_PREFIX)
 app.include_router(notifications.router, prefix=API_PREFIX)
 app.include_router(dose_status.router, prefix=API_PREFIX)
 app.include_router(reports.router, prefix=API_PREFIX)
