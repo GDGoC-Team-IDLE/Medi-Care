@@ -12,6 +12,8 @@
  *
  * 경로는 /api/v1 뒤쪽만 적습니다 (끝 슬래시 없이).
  */
+import { fetch as expoFetch } from 'expo/fetch';
+import { File } from 'expo-file-system';
 import { isWeb } from './platform';
 import { getItem, removeItem, setItem } from './storage';
 
@@ -145,7 +147,8 @@ export async function request<T>(method: string, path: string, options: RequestO
 
   let res: Response;
   try {
-    res = await fetch(url, { method, headers, body });
+    const send = options.form && !isWeb ? expoFetch : fetch;
+    res = await send(url, { method, headers, body });
   } catch {
     throw new ApiError(0, 'NETWORK_ERROR', '서버에 연결할 수 없습니다');
   }
@@ -170,15 +173,14 @@ export const api = {
 
 export interface UploadFile {
   uri: string; // expo-image-picker 결과의 asset.uri
-  name: string;
-  type: string; // MIME, 예: image/jpeg
+  name: string; // 웹에서 전송할 파일 이름
 }
 
 /**
  * FormData 에 파일을 넣습니다. 앱과 웹이 넣는 방식이 달라 여기서 분기합니다.
  *
  *   const form = new FormData();
- *   await appendFile(form, 'photo', { uri: asset.uri, name: 'dose.jpg', type: 'image/jpeg' });
+ *   await appendFile(form, 'photo', { uri: asset.uri, name: 'dose.jpg' });
  *   await api.postForm('/dose_logs', form);
  */
 export async function appendFile(form: FormData, field: string, file: UploadFile): Promise<void> {
@@ -186,7 +188,7 @@ export async function appendFile(form: FormData, field: string, file: UploadFile
     const blob = await (await fetch(file.uri)).blob(); // 웹의 uri 는 blob:/data: 주소
     form.append(field, blob, file.name);
   } else {
-    // React Native 의 FormData 는 { uri, name, type } 객체로 파일을 받습니다 (DOM 타입에는 없어 캐스팅)
-    form.append(field, file as unknown as Blob);
+    // Expo fetch는 URI를 담은 객체 대신 읽을 수 있는 File을 받습니다.
+    form.append(field, new File(file.uri));
   }
 }

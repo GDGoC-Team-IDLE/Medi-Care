@@ -307,7 +307,7 @@ export function Checking() {
         if (!t) return to('p21-empty');
         target = t;
         const form = new FormData();
-        await appendFile(form, 'image', { uri, name: 'dose.jpg', type: 'image/jpeg' });
+        await appendFile(form, 'image', { uri, name: 'dose.jpg' });
         const v = await api.postForm<Verify>(`/patients/me/dose-slots/${t.slot.slot_id}/verifications`, form);
         if (done) return;
         verdict = v;
