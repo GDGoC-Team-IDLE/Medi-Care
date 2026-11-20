@@ -14,7 +14,7 @@ const s = (id: string, title: string, C: ComponentType): ScreenDef => ({ id, tit
 export const FLOWS: Flow[] = [
   {
     name: '계정',
-    screens: [s('c01-login', '보호자 로그인', A.Login), s('c02-device', '누가 쓸 폰인가요?', A.Device), s('c03-patient', '어르신 이름', A.Patient), s('c04-linked', '연결됐어요', A.Linked), s('c05-notify', '알림을 켜 주세요', A.Notify)],
+    screens: [s('c01-login', '보호자 로그인', A.Login), s('c01s-signup', '보호자 가입', A.Signup), s('c02-device', '누가 쓸 폰인가요?', A.Device), s('c03-patient', '어르신 이름', A.Patient), s('c04-linked', '연결됐어요', A.Linked), s('c05-notify', '알림을 켜 주세요', A.Notify)],
   },
   {
     name: '연결 숫자 (별안)',
