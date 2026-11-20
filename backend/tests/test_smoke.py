@@ -14,6 +14,10 @@ EXPECTED_TABLES = {
     "prescription_drugs",
     "dose_slots",
     "dose_logs",
+    "refresh_tokens",
+    "revoked_access_tokens",
+    "pairing_codes",
+    "pair_attempts",
 }
 
 

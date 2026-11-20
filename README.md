@@ -11,7 +11,7 @@
 ```
 
 앱과 웹은 같은 코드(`mobile/`, Expo)로 만듭니다.
-지금 저장소에는 **기초 설정만** 들어 있습니다. API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
+지금 저장소에는 기초 설정과 보호자 인증·어르신 기기 연결 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
 
 - **배포:** Render ([render.yaml](render.yaml))
 - **로컬 개발:** `docker-compose.yml`과 `nginx/`는 로컬용입니다. DB는 로컬에 띄우지 않고 Neon의 dev 브랜치에 붙습니다.
@@ -35,11 +35,14 @@
 │   │   │   ├── database.py # engine, SessionLocal, Base, get_db
 │   │   │   └── clock.py    # now_local() - 서비스 시간대 기준 현재 시각
 │   │   ├── enums.py        # Slot, DoseStatus, VerifyResult, AlarmMode, MealTiming
-│   │   ├── models.py       # DB 테이블 9개
+│   │   ├── models.py       # DB 테이블 13개
+│   │   ├── security.py     # 비밀번호 해시, JWT, 토큰 해시
 │   │   ├── seed.py         # 시연용 데이터
 │   │   └── routers/
+│   │       ├── auth.py     # 보호자 가입·로그인·토큰·탈퇴
+│   │       ├── patients.py # 어르신 등록·기기 연결·기기 인증
 │   │       └── health.py   # GET /api/v1/health
-│   └── tests/test_smoke.py # SQLite 로 동작
+│   └── tests/            # SQLite로 smoke 및 인증 전체 흐름 테스트
 └── mobile/                 # React Native (Expo) - 안드로이드 앱 + 웹
     ├── app.json            # 웹은 SPA(output: single)로 빌드
     ├── .env.example        # EXPO_PUBLIC_API_URL
@@ -161,7 +164,11 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | 테이블 | 설명 | 주요 컬럼 |
 | --- | --- | --- |
 | `guardians` | 보호자 (로그인 계정) | `email` UNIQUE, `password_hash` |
-| `patients` | 어르신 | `guardian_id` → guardians, `device_token` UNIQUE (어르신 기기 식별) |
+| `refresh_tokens` | 보호자 토큰 재발급 | `guardian_id` → guardians, `token_hash` UNIQUE, `expires_at` |
+| `revoked_access_tokens` | 로그아웃된 JWT 차단 | PK `token_hash`, `expires_at` |
+| `patients` | 어르신 | `guardian_id` → guardians, `device_token` UNIQUE NULL 가능(해시 저장) |
+| `pairing_codes` | 어르신 기기 연결용 6자리 코드 | PK `code`, `patient_id` UNIQUE, `expires_at` |
+| `pair_attempts` | IP별 기기 연결 시도 | `client_ip`, `attempted_at` |
 | `alarm_settings` | 어르신별·회차별 알람 방식 | PK(`patient_id`, `slot`), `mode` 기본 `POPUP` |
 | `push_tokens` | 보호자 기기의 Expo 푸시 토큰 | `guardian_id` → guardians, `expo_token` UNIQUE |
 | `drug_info` | 식약처 의약품 정보 캐시 | PK `item_seq`(품목기준코드), `normalized_name` INDEX, `dur_json`, `pill_json` |
