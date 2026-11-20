@@ -1,8 +1,10 @@
 // 오늘 (허브) · 기록 ("오늘 약 먹었나요?" → 지난 날 목록 → 그날) · 기기 권한(알림 꺼짐) · 약 없음 뒤 허브
-import { useEffect, useState } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useState } from 'react';
 import { Animated, AppState, Easing, Linking, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { back, go, swap } from '@/lib/nav';
+import { api } from '@/lib/api';
 import { isWeb } from '@/lib/platform';
 import { elderHome } from '@/screens/account';
 import { GUARDIAN, call } from '@/lib/mock';
@@ -36,14 +38,59 @@ function HubState({ s, word, c }: { s: Status; word: string; c?: string }) {
   );
 }
 
-/** p21 등록된 약이 없을 때 */
+/** 어르신 폰에 오늘 회차가 생겼는지 (GET /patients/me/dose-slots). 기기 토큰이 없거나 서버가 안 되면 false */
+async function hasDoses() {
+  try {
+    const { slots } = await api.get<{ slots: unknown[] }>('/patients/me/dose-slots');
+    return slots.length > 0;
+  } catch {
+    return false;
+  }
+}
+/** 약을 기다리는 동안 다시 보는 간격 */
+const RECHECK_MS = 15000;
+
+/**
+ * p21 등록된 약이 없을 때 (보호자와 연결한 직후 등).
+ * 약은 보통 보호자가 등록하므로 주 버튼은 보호자에게 전화로 부탁하기, 보조는 어르신이 약봉투를 직접 찍기.
+ * 화면이 떠 있는 동안 15초마다 · 앱으로 돌아올 때마다 오늘 회차를 다시 보고, 생기면 바로 p04 로 넘어간다.
+ */
 export function Empty() {
+  useFocusEffect(
+    useCallback(() => {
+      let live = true;
+      const check = async () => {
+        if ((await hasDoses()) && live) swap('p04-today');
+      };
+      void check();
+      const t = setInterval(() => void check(), RECHECK_MS);
+      const sub = AppState.addEventListener('change', (st) => st === 'active' && void check());
+      return () => {
+        live = false;
+        clearInterval(t);
+        sub.remove();
+      };
+    }, []),
+  );
   return (
     <Phone>
-      <Say icon text="약봉투를 찍어서 약을 등록해 주세요." />
+      <Say icon text={`아직 등록된 약이 없어요. ${GUARDIAN}에게 등록을 부탁해 주세요. 등록되면 바로 바뀌어요.`} />
       <Tray now={0.279} />
       <Fig3 name="envelope@132" motion="am-float" w={160} h={132} style={abs({ left: 115, top: 340 })} />
-      <Btn up={0.85} icon="camera" label="약봉투 찍기" onPress={() => go('p01-scan')} />
+      <Up delay={0.6}>
+        <T h center top={500}>
+          약이 아직 없어요
+        </T>
+      </Up>
+      <Up delay={0.7}>
+        <Row center top={552}>
+          {/* 15초마다 다시 보지만 아이콘은 그대로 둔다(깜빡이면 어르신이 헷갈린다) */}
+          <Icon name="refresh-cw" size={24} c={C.ink2} />
+          <T c={C.ink2}>등록되면 바로 바뀌어요</T>
+        </Row>
+      </Up>
+      <Btn up={0.85} two icon="phone" label={`${GUARDIAN}에게 부탁하기`} onPress={call} />
+      <Sub up={0.9} icon="camera" label="약봉투 직접 찍기" onPress={() => go('p01-scan')} />
     </Phone>
   );
 }
