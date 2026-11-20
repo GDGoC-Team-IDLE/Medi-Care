@@ -1,5 +1,6 @@
 // 화면 유형마다 되풀이되는 부품 (목업의 0번 틀 · 허브 · 판정 · 카메라 · 잠금 알림)
-import { useEffect, useLayoutEffect, useState, type ReactNode } from 'react';
+import { useFocusEffect } from 'expo-router';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
 import { Animated, Easing, Platform, View } from 'react-native';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 import * as Speech from 'expo-speech';
@@ -30,15 +31,59 @@ export function Back({ close, onPress, top = 58 }: { close?: boolean; onPress?: 
 
 /** 듣기: 화면 내용을 소리로 읽어 준다 */
 export function Say({ text, icon }: { text: string; icon?: boolean }) {
-  useEffect(() => () => void Speech.stop(), []);
-  const speak = () => {
-    Speech.stop();
-    Speech.speak(text, { language: 'ko-KR', rate: 0.9 });
+  const [playing, setPlaying] = useState(false);
+  const utterance = useRef<symbol | null>(null);
+  const stopping = useRef(false);
+  const message = text.trim();
+
+  const stop = useCallback(() => {
+    if (!utterance.current) return;
+    utterance.current = null;
+    setPlaying(false);
+    stopping.current = true;
+    void Speech.stop()
+      .catch(() => undefined)
+      .finally(() => {
+        stopping.current = false;
+      });
+  }, []);
+
+  useFocusEffect(useCallback(() => (message ? stop : undefined), [stop, message]));
+
+  const toggle = () => {
+    if (stopping.current || !message) return;
+    if (utterance.current) {
+      stop();
+      return;
+    }
+
+    const current = Symbol();
+    utterance.current = current;
+    setPlaying(true);
+    const finish = () => {
+      if (utterance.current !== current) return;
+      utterance.current = null;
+      setPlaying(false);
+    };
+    try {
+      Speech.speak(message, {
+        language: 'ko-KR',
+        rate: 0.9,
+        onDone: finish,
+        onStopped: finish,
+        onError: finish,
+      });
+    } catch {
+      finish();
+    }
   };
+
+  if (!message) return null;
+  const label = playing ? '중지' : '듣기';
   return (
     <Tap
-      accessibilityLabel="듣기"
-      onPress={speak}
+      accessibilityLabel={playing ? '음성 안내 중지' : '음성 안내 듣기'}
+      onPress={toggle}
       style={[
         // 글자·아이콘의 오른쪽 끝이 끝선 28 에 오게
         abs({ right: icon ? 12 : 16, top: 58, height: 60 }),
@@ -46,8 +91,8 @@ export function Say({ text, icon }: { text: string; icon?: boolean }) {
         icon ? { width: 60 } : { paddingHorizontal: 12 },
       ]}
     >
-      <Icon name="volume-2" />
-      {!icon && <T k>듣기</T>}
+      <Icon name={playing ? 'volume-x' : 'volume-2'} />
+      {!icon && <T k>{label}</T>}
     </Tap>
   );
 }
@@ -130,11 +175,18 @@ export function Fig({ name, ...pos }: { name: IllName } & Pos) {
   const p = { left: 28, top: 132, width: 334, height: 240, ...pos };
   return <Ill name={name} w={p.width} h={p.height} style={abs({ left: p.left, top: p.top })} />;
 }
-export function Verdict({ title, tell, line, lineIcon }: { title: string; tell?: string; line?: string; lineIcon?: IconName }) {
+export function Verdict({ title, tell, line, lineIcon, readAloud }: {
+  title: string;
+  tell?: string;
+  line?: string;
+  lineIcon?: IconName;
+  readAloud?: boolean;
+}) {
   const fg = useFg();
   const sub = fg === C.ink ? C.ink2 : fg;
   return (
     <>
+      {readAloud && <Say text={[title, tell, line].filter(Boolean).join('. ')} />}
       <T h center top={420}>
         {title}
       </T>

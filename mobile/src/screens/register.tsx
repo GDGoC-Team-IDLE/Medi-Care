@@ -90,27 +90,40 @@ function Caution({ top, icon, title, tell }: { top: number; icon: IconName; titl
   );
 }
 
+const PRIMARY_CAUTION = {
+  title: '같이 드시면 안 돼요',
+  drugs: '리바로정 · 젬피브로질',
+  tell: '다른 병원 약에 있으면 약사에게 물어요',
+};
+
+const OTHER_CAUTIONS = [
+  { top: 388, icon: 'circle-alert', title: '어지러울 수 있어요', tell: '천천히 일어나요' },
+  { top: 484, icon: 'pill', title: '위장약이 겹쳐요', tell: '약사에게 물어요' },
+] as const;
+
 /** p03 주의사항. DUR 3종: 병용금기(맨 위, 크게) · 노인주의 · 효능군 중복. 약 조합은 예시 */
 export function CautionScreen() {
+  const { title, drugs, tell } = PRIMARY_CAUTION;
+  const guidance = [title, drugs, tell, ...OTHER_CAUTIONS.flatMap((item) => [item.title, item.tell])];
+
   return (
     <Phone>
       <Back />
-      <Say text="같이 드시면 안 되는 약이 있어요. 리바로정과 젬피브로질. 다른 병원 약에 있으면 약사에게 물어보세요." />
+      <Say text={guidance.join('. ')} />
       <Row left={28} top={132}>
         <Ill name="pill-scored" />
         <Ill name="pill-oval" />
       </Row>
       <T h left={28} top={204}>
-        같이 드시면 안 돼요
+        {title}
       </T>
       <T k left={28} top={258}>
-        리바로정 · 젬피브로질
+        {drugs}
       </T>
       <T c={C.ink2} left={28} top={292}>
-        다른 병원 약에 있으면 약사에게
+        {tell}
       </T>
-      <Caution top={388} icon="circle-alert" title="어지러울 수 있어요" tell="천천히 일어나요" />
-      <Caution top={484} icon="pill" title="위장약이 겹쳐요" tell="약사에게 물어요" />
+      {OTHER_CAUTIONS.map((item) => <Caution key={item.icon} {...item} />)}
       <Btn label="알겠어요" onPress={() => go('p28-start')} />
     </Phone>
   );

@@ -205,9 +205,8 @@ export function Checking() {
 export function Ok() {
   return (
     <Phone bg={C.ok} fg={C.white}>
-      <Say text="맞아요, 드세요. 점심 약 완료. 다음은 저녁 식후예요." />
       <Fig name="verdict-ok" left={75} top={152} width={240} height={200} />
-      <Verdict title="맞아요, 드세요" tell="점심 12:31 완료" line="다음은 저녁 식후" lineIcon="moon" />
+      <Verdict readAloud title="맞아요, 드세요" tell="점심 12:31 완료" line="다음은 저녁 식후" lineIcon="moon" />
       <Btn kind="w" label="확인" onPress={() => swap('p19-wait')} />
     </Phone>
   );
@@ -218,10 +217,9 @@ export function WrongTime() {
   return (
     <Phone>
       <Back close />
-      <Say text="저녁 약이에요. 봉투에 다시 넣어 주세요. 보호자에게 알렸어요." />
       <Fig name="verdict-wrong-time" />
       <Stop />
-      <Verdict title="저녁 약이에요" tell="봉투에 다시 넣어요" line="보호자에게 알렸어요" lineIcon="bell" />
+      <Verdict readAloud title="저녁 약이에요" tell="봉투에 다시 넣어요" line="보호자에게 알렸어요" lineIcon="bell" />
       <Btn two icon="camera" label="점심 봉투 찍기" onPress={shoot} />
       <Sub icon="phone" label="보호자에게 전화" onPress={call} />
     </Phone>
@@ -233,10 +231,9 @@ export function Already() {
   return (
     <Phone>
       <Back close />
-      <Say text="이미 드셨어요. 봉투에 다시 넣어 주세요. 보호자에게 알렸어요." />
       <Fig name="verdict-already" />
       <Stop />
-      <Verdict title="이미 드셨어요" tell="봉투에 다시 넣어요" line="보호자에게 알렸어요" lineIcon="bell" />
+      <Verdict readAloud title="이미 드셨어요" tell="봉투에 다시 넣어요" line="보호자에게 알렸어요" lineIcon="bell" />
       <Btn two label="확인" onPress={() => swap('p19-wait')} />
       <Sub icon="phone" label="보호자에게 전화" onPress={call} />
     </Phone>
@@ -248,13 +245,12 @@ export function Count() {
   return (
     <Phone>
       <Back close />
-      <Say text="한 알이 모자라요. 두 알인지 다시 세어 보세요. 보호자에게 알렸어요." />
       <Fig name="verdict-count" width={270} height={200} />
       <Stop />
       <T k center top={340}>
         사진 1알 / 예상 2알
       </T>
-      <Verdict title="1알이 모자라요" tell="2알인지 다시 세어 봐요" line="보호자에게 알렸어요" lineIcon="bell" />
+      <Verdict readAloud title="1알이 모자라요" tell="2알인지 다시 세어 봐요" line="보호자에게 알렸어요" lineIcon="bell" />
       <Btn two icon="camera" label="다시 찍기" onPress={shoot} />
       <Sub icon="phone" label="보호자에게 전화" onPress={call} />
     </Phone>
@@ -266,10 +262,9 @@ export function Retake() {
   return (
     <Phone>
       <Back close />
-      <Say text="다시 찍어 주세요. 폰을 식탁에 대고 찍으면 잘 찍혀요." />
       <Fig name="verdict-retake" />
       <Stop ink />
-      <Verdict title="다시 찍어 주세요" tell="폰을 식탁에 대고 찍어요" />
+      <Verdict readAloud title="다시 찍어 주세요" tell="폰을 식탁에 대고 찍어요" />
       <Btn two icon="camera" label="다시 찍기" onPress={shoot} />
       <Sub icon="phone" label="보호자에게 전화" onPress={call} />
     </Phone>
