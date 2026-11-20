@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import models  # noqa: F401  (create_all 전에 테이블을 등록하기 위해 import)
 from app.core.config import get_settings
 from app.core.database import Base, engine
+
 from app.routers import auth, health, notifications, patients
 
 API_PREFIX = "/api/v1"
@@ -34,3 +35,7 @@ app.include_router(health.router, prefix=API_PREFIX)
 app.include_router(auth.router, prefix=API_PREFIX)
 app.include_router(patients.router, prefix=API_PREFIX)
 app.include_router(notifications.router, prefix=API_PREFIX)
+app.include_router(dose_status.router, prefix=API_PREFIX)
+app.include_router(reports.router, prefix=API_PREFIX)
+app.include_router(notifications.router, prefix=API_PREFIX)
+

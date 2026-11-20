@@ -7,6 +7,7 @@ import { C } from '@/constants/theme';
 import { Icon, Ill, Phone, T, Tap, abs } from '@/components/core';
 import { Field } from '@/components/field';
 import { Back, Badge, Btn, Sub, Verdict } from '@/components/parts';
+import { requestMedicationNotificationPermissions } from '@/lib/medicationNotifications';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -136,13 +137,17 @@ export function Linked() {
 
 /** c05 알림 켜기. 누르면 권한을 차례로 묻는다(알림 · 정확한 알람 · 전체 화면 알림) */
 export function Notify() {
+  const enable = async () => {
+    const granted = await requestMedicationNotificationPermissions();
+    swap(granted ? 'p21-empty' : 'p26-belloff');
+  };
   return (
     <Phone>
       <Back />
       <Ill name="phone-ring" w={160} style={abs({ left: 115, top: 172 })} />
       <Badge icon="bell-ring" top={172} />
       <Verdict title="알림 켜기" tell="약 먹을 때 소리로 알려요" />
-      <Btn label="켜기" onPress={() => swap('p21-empty')} />
+      <Btn label="켜기" onPress={() => void enable()} />
     </Phone>
   );
 }

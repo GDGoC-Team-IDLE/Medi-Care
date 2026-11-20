@@ -12,7 +12,7 @@
 
 앱과 웹은 같은 코드(`mobile/`, Expo)로 만듭니다.
 
-지금 저장소에는 기초 설정과 보호자 인증·어르신 기기 연결 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
+지금 저장소에는 기초 설정과 보호자 인증, 어르신 기기 연결, 복용 현황 조회 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
 
 
 - **배포:** Render ([render.yaml](render.yaml))
@@ -37,12 +37,14 @@
 │   │   │   ├── database.py # engine, SessionLocal, Base, get_db
 │   │   │   └── clock.py    # now_local() - 서비스 시간대 기준 현재 시각
 │   │   ├── enums.py        # Slot, DoseStatus, VerifyResult, AlarmMode, MealTiming
-│   │   ├── models.py       # DB 테이블 13개
+│   │   ├── models.py       # DB 테이블 14개
 │   │   ├── security.py     # 비밀번호 해시, JWT, 토큰 해시
 │   │   ├── seed.py         # 시연용 데이터
 │   │   └── routers/
 │   │       ├── auth.py     # 보호자 가입·로그인·토큰·탈퇴
 │   │       ├── patients.py # 어르신 등록·기기 연결·기기 인증
+│   │       ├── notifications.py # 보호자 푸시 토큰·15분 무응답 알림
+│   │       ├── dose_status.py # GET /api/v1/patients/{patient_id}/status
 │   │       └── health.py   # GET /api/v1/health
 │   └── tests/            # SQLite로 smoke 및 인증 전체 흐름 테스트
 └── mobile/                 # React Native (Expo) - 안드로이드 앱 + 웹
@@ -66,6 +68,9 @@
             ├── api.ts      # 공용 API 요청 함수 (get/post/patch/postForm)
             ├── storage.ts  # 토큰 저장 (앱: SecureStore, 웹: localStorage)
             ├── platform.ts # isWeb 등 플랫폼 분기
+            ├── medicationNotifications.ts # 예정·5·10·15분 로컬 알림
+            ├── notificationEscalation.ts  # 15분 무응답 서버 전송·재시도
+            ├── pushRegistration.ts        # 보호자 Expo Push 토큰 등록
             ├── nav.ts      # 화면 id 로 이동 (go / swap / back)
             └── mock.ts     # 서버가 붙기 전까지 쓰는 예시 값
 ```
@@ -159,7 +164,8 @@ API 서비스는 `region: singapore`로 만들어집니다 (만든 뒤에는 바
 
 - **주기 작업:** 외부 크론(cron-job.org)이 `POST /api/v1/internal/tick`을 `X-Cron-Secret` 헤더와 함께 10분마다 호출합니다 (담당: 안민규).
   엔드포인트는 헤더 값이 `CRON_SECRET`과 같은지 확인하도록 구현합니다. 서버 안에서 도는 스케줄러(APScheduler 등)는 쓰지 않습니다.
-- **복용 시간 알림:** 폰 로컬 알림이라 서버 상태와 무관합니다.
+- **복용 시간 알림:** 예정 시각과 5·10·15분 뒤 알림은 폰에서 로컬로 예약합니다.
+- **보호자 알림:** 15분 알림 시점에만 어르신 앱이 서버에 무응답을 보고합니다. 앱이 종료되어 즉시 전송하지 못한 경우에는 다음 앱 실행 시 재시도하며, 같은 복용 회차의 보호자 알림은 서버에서 한 번만 생성합니다.
 
 ## DB 테이블
 
@@ -182,6 +188,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `prescription_drugs` | 처방에 포함된 약 1종 | `item_seq`(NULL 가능) → drug_info, `count_per_dose`, `slots`(JSON 배열), `meal_timing` 기본 `AFTER` |
 | `dose_slots` | 날짜별 복용 회차 1건 | UNIQUE(`prescription_id`, `slot_date`, `slot`), INDEX(`patient_id`, `slot_date`), `expected_count`, `status` 기본 `PENDING` |
 | `dose_logs` | 복용 인증 사진 1건과 판정 | `dose_slot_id` → dose_slots, `photo_path`, `ai_json`, `result` |
+| `guardian_alerts` | 보호자 알림 내역 | UNIQUE(`dose_slot_id`, `type`), `push_sent_at`, `push_error` |
 
 - 열거형 ([app/enums.py](backend/app/enums.py)) 값은 대문자 문자열로 저장됩니다 (DB 타입은 VARCHAR, PostgreSQL ENUM 타입 미사용 → 값 추가 시 ALTER 불필요).
 - `*_json`, `slots` 컬럼은 JSONB입니다.
@@ -192,6 +199,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `DoseStatus` | `PENDING` `DONE` `MISSED` `WRONG` |
 | `VerifyResult` | `OK` `WRONG_TIME` `ALREADY_TAKEN` `COUNT_MISMATCH` `RETAKE` |
 | `AlarmMode` | `POPUP` `FULLSCREEN` |
+| `GuardianAlertType` | `DOSE_NO_RESPONSE` |
 | `MealTiming` | `BEFORE` `AFTER` `ANY` |
 
 시간은 tz 정보 없이 서비스 시간대(Asia/Seoul) 기준으로 저장합니다. 현재 시각은 `datetime.now()` 대신 `app.core.clock.now_local()`을 씁니다.

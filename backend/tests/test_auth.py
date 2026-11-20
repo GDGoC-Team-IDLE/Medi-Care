@@ -74,7 +74,7 @@ def test_full_auth_and_device_lifecycle():
         device_token = pair.json()["device_token"]
 
         patient_me = client.get(
-            "/api/v1/patient/me", headers={"X-Device-Token": device_token}
+            "/api/v1/patients/me", headers={"X-Device-Token": device_token}
         )
         assert patient_me.status_code == 200
         assert patient_me.json() == {
@@ -161,6 +161,6 @@ def test_full_auth_and_device_lifecycle():
         assert login_after_delete.status_code == 401
 
         device_after_delete = client.get(
-            "/api/v1/patient/me", headers={"X-Device-Token": device_token}
+            "/api/v1/patients/me", headers={"X-Device-Token": device_token}
         )
         assert device_after_delete.status_code == 401
