@@ -82,8 +82,14 @@ def current_medications(
         .order_by(PrescriptionDrug.prescription_id, PrescriptionDrug.id)
     ).all()
     medications = []
+    active_drugs = []
     for drug in sorted(drugs, key=lambda drug: active[drug.prescription_id][0]):
         start_date, end_date = active[drug.prescription_id]
+        if drug.days is not None:
+            end_date = start_date + timedelta(days=drug.days - 1)
+            if today > end_date:
+                continue
+        active_drugs.append(drug)
         medications.append(Medication(
             prescription_id=drug.prescription_id,
             start_date=start_date,
@@ -93,7 +99,7 @@ def current_medications(
             slots=[Slot(slot) for slot in drug.slots],
             meal_timing=drug.meal_timing,
         ))
-    return medications, active_dur_warnings(drugs)
+    return medications, active_dur_warnings(active_drugs)
 
 
 def _rate(done: int, total: int) -> float:

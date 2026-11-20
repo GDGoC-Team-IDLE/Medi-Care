@@ -16,7 +16,7 @@ from fastapi.responses import JSONResponse
 from fastapi.security import HTTPAuthorizationCredentials
 from pydantic import BaseModel
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from app.core.database import get_db
 from app.core.photo_storage import sign_dose_photos
@@ -92,6 +92,7 @@ def get_dose_slots(
         drugs = db.scalars(
             select(PrescriptionDrug)
             .where(PrescriptionDrug.prescription_id.in_({dose.prescription_id for dose in doses}))
+            .options(joinedload(PrescriptionDrug.prescription))
             .order_by(PrescriptionDrug.id)
         ).all()
         photo_urls = sign_dose_photos(dose.photo_path for dose in doses if dose.photo_path)
@@ -107,7 +108,9 @@ def get_dose_slots(
                 drugs=[
                     SlotDrug(name=drug.drug_name, count_per_dose=drug.count_per_dose, meal_timing=drug.meal_timing)
                     for drug in drugs
-                    if drug.prescription_id == dose.prescription_id and dose.slot in drug.slots
+                    if drug.prescription_id == dose.prescription_id
+                    and dose.slot in drug.slots
+                    and drug.is_scheduled_on(slot_date)
                 ],
                 last_log=LastLog(
                     dose_log_id=dose.dose_log_id,

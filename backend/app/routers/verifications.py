@@ -159,7 +159,7 @@ def _expected_pills(slot: DoseSlot) -> list[ExpectedPill]:
     """이 회차에 먹을 약을 알 단위로 펼칩니다. 식약처 정보가 없는 약은 look=None."""
     pills: list[ExpectedPill] = []
     for drug in slot.prescription.drugs:
-        if str(slot.slot) not in (drug.slots or []):
+        if str(slot.slot) not in (drug.slots or []) or not drug.is_scheduled_on(slot.slot_date):
             continue
         look = appearance_from_mfds(drug.drug_info.pill_json) if drug.drug_info else None
         pills.extend(ExpectedPill(drug.id, look) for _ in range(drug.count_per_dose))
