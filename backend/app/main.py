@@ -8,7 +8,7 @@ from app.core.config import get_settings
 from app.core.database import Base, engine
 
 from app.routers import auth, health, notifications, patients
-
+from app.routers import auth, dose_status, health, patients, verifications
 API_PREFIX = "/api/v1"
 
 
