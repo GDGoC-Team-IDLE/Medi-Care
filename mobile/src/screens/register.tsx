@@ -5,6 +5,7 @@ import { useLocalSearchParams } from 'expo-router';
 import { back, go, swap } from '@/lib/nav';
 import { api, ApiError, TOKEN_KEYS, appendFile } from '@/lib/api';
 import { getItem } from '@/lib/storage';
+import { loadCurrentPatient } from '@/lib/currentPatient';
 import { C, R } from '@/constants/theme';
 import { Icon, Ill, Phone, Pop, Row, T, Tap, Up, abs, type IconName, type IllName } from '@/components/core';
 import { Back, Btn, CamTitle, Say, ScanCard, Shutter, Sub, Tray, Viewfinder, lastShot, type ScanSpec } from '@/components/parts';
@@ -123,13 +124,14 @@ let saved: { from: Preview; who: string; res: Saved } | null = null;
 let dur: Dur | null = null;
 
 /**
- * 처방을 저장할 어르신. 어르신 폰(기기 토큰)이면 'me', 보호자 폰이면 GET /patients 의 첫 어르신 id
- * (여러 명일 때 고르는 화면은 아직 없다). 보호자에게 연결된 어르신이 없으면 null
+ * 처방을 저장할 어르신. 어르신 폰(기기 토큰)이면 'me', 보호자 폰이면 마이페이지에서 선택한 어르신
+ * (선택한 적이 없거나 그 어르신이 목록에 없으면 GET /patients 의 첫 어르신). 보호자에게 연결된 어르신이 없으면 null
  */
 async function owner(): Promise<string | null> {
   if (await getItem(TOKEN_KEYS.device)) return 'me';
-  const { patients } = await api.get<{ patients: { patient_id: number }[] }>('/patients');
-  return patients.length ? String(patients[0].patient_id) : null;
+  const [{ patients }, cur] = await Promise.all([api.get<{ patients: { patient_id: number }[] }>('/patients'), loadCurrentPatient()]);
+  const pick = patients.find((p) => p.patient_id === cur?.patient_id) ?? patients[0];
+  return pick ? String(pick.patient_id) : null;
 }
 
 /** p23 '맞아요': 처방 저장 → 주의사항 조회. 주의할 게 있으면 p03, 없으면 p28 */

@@ -5,6 +5,7 @@ import { Image, View } from 'react-native';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
 import { go, swap } from '@/lib/nav';
 import { api, ApiError } from '@/lib/api';
+import { useCurrentPatient } from '@/lib/currentPatient';
 import { PATIENT, TODAY, call } from '@/lib/mock';
 import { C, R } from '@/constants/theme';
 import { PNG, type PngFile } from '@/constants/img.gen';
@@ -292,13 +293,19 @@ export function WellEvent() {
 function Head() {
   // 아이콘 셋(달력 · 화면 가득 알림 · 마이페이지)이 들어가도 날짜가 꺾이지 않게 단추 폭 44, 날짜는 한 줄
   const btn = { width: 44, height: 48, alignItems: 'center', justifyContent: 'center' } as const;
+  // 마이페이지에서 선택한 어르신(없으면 예시 이름). 달력도 그 어르신으로
+  const cp = useCurrentPatient();
+  const name = cp?.name ?? PATIENT;
   return (
     <View style={[abs({ left: 28, right: 12, top: 62, height: 48 }), { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
-      <T h>{PATIENT}</T>
+      {/* 이름은 최대 10자: 아이콘 셋 · 날짜 자리를 남기고 한 줄로 줄인다 */}
+      <T h fit={140}>
+        {name}
+      </T>
       <T s={16} fit={96} c={C.ink2} style={{ flex: 1, marginLeft: 8 }}>
         {TODAY}
       </T>
-      <Tap accessibilityLabel="달력" onPress={() => go('c08-calendar')} style={btn}>
+      <Tap accessibilityLabel={`${name} 달력`} onPress={() => go(cp ? `c08-calendar?patient_id=${cp.patient_id}&name=${encodeURIComponent(cp.name)}` : 'c08-calendar')} style={btn}>
         <Icon name="calendar-days" size={24} />
       </Tap>
       <Tap accessibilityLabel="화면 가득 알림" onPress={() => go('g16-alarmset')} style={btn}>
