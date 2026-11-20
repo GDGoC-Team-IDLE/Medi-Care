@@ -249,10 +249,12 @@ function Stepper({ value, onChange, min = 1, max = 99, unit }: { value: number; 
       <Tap accessibilityLabel="빼기" onPress={() => onChange(Math.max(min, value - 1))} style={round}>
         <Icon name="minus" size={40} />
       </Tap>
-      <T s={84} num>
-        {value}
-        {unit}
-      </T>
+      {/* 가운데 칸 = 334 − 버튼 96×2 = 142. 두 자리('10일')는 글자를 줄여 이 칸 한 줄에 맞춘다 */}
+      <View style={{ width: 142, alignItems: 'center' }}>
+        <T s={84} num fit={142}>
+          {`${value}${unit}`}
+        </T>
+      </View>
       <Tap accessibilityLabel="더하기" onPress={() => onChange(Math.min(max, value + 1))} style={round}>
         <Icon name="plus" size={40} />
       </Tap>

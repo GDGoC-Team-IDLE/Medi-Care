@@ -7,7 +7,7 @@ import * as Speech from 'expo-speech';
 import { back } from '@/lib/nav';
 import { TODAY_LONG } from '@/lib/mock';
 import { C, R, W } from '@/constants/theme';
-import { Color, Icon, Ill, Pop, Row, StatusMark, T, Tap, Up, abs, reduceMotion, useBackSlot, useFg, type IconName, type IllName, type Pos, type Status } from './core';
+import { Color, Icon, Ill, Pop, Row, StatusMark, T, Tap, Up, abs, near1, reduceMotion, useBackSlot, useFg, type IconName, type IllName, type Pos, type Status } from './core';
 import { Fig3 } from './figure';
 
 const native = Platform.OS !== 'web';
@@ -222,7 +222,7 @@ export function Fig({ fig, motion, name, ...pos }: { fig?: string; motion?: Para
   const p = { left: 28, top: 132, width: 334, height: 240, ...pos };
   const v = useOnce(0, 0.36);
   return (
-    <Animated.View style={[abs({ left: p.left, top: p.top, width: p.width, height: p.height }), { opacity: v, transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [0.9, 1] }) }] }]}>
+    <Animated.View style={[abs({ left: p.left, top: p.top, width: p.width, height: p.height }), { opacity: v, transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [near1(0.9), 1] }) }] }]}>
       {fig ? <Fig3 name={fig} motion={motion} w={p.width} h={p.height} /> : name ? <Ill name={name} w={p.width} h={p.height} /> : null}
     </Animated.View>
   );
@@ -372,7 +372,7 @@ function Cell({ i, v, c, y0, k, focus, big }: { i: number; v?: Slot; c: number; 
   }, [after, v]);
   const my = y0 + 92 * k;
   const ic = 32 * k;
-  const pop = (a: Animated.Value) => ({ opacity: a, transform: [{ scale: a.interpolate({ inputRange: [0, 1], outputRange: [0.6, 1] }) }] });
+  const pop = (a: Animated.Value) => ({ opacity: a, transform: [{ scale: a.interpolate({ inputRange: [0, 1], outputRange: [near1(0.6), 1] }) }] });
   let mark: ReactNode = null;
   if (v === 'done') {
     const z = 52 * k;
@@ -652,7 +652,7 @@ export function ScanCard({ spec, title }: { spec: ScanSpec; title: string }) {
       <Animated.View
         style={[
           abs({ left: CARD.left, top: CARD.top, width: CARD.w, height: CARD.h }),
-          { transform: [{ translateY: land.interpolate({ inputRange: [0, 1], outputRange: [102, 0] }) }, { scale: land.interpolate({ inputRange: [0, 1], outputRange: [1.625, 1] }) }] },
+          { transform: [{ translateY: land.interpolate({ inputRange: [0, 1], outputRange: [102, 0] }) }, { scale: land.interpolate({ inputRange: [0, 1], outputRange: [near1(1.625), 1] }) }] },
         ]}
       >
         <View style={{ width: CARD.w, height: CARD.h, borderRadius: 34 * s, overflow: 'hidden' }}>
@@ -941,7 +941,7 @@ export function Noti({ title, body, big, row, onPress, onAck, onCall }: NotiProp
               약 알림 · 지금
             </T>
           </View>
-          <Animated.View style={[abs({ right: 20, top: 48, width: 48, height: 48 }), { borderRadius: 24, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', opacity: li, transform: [{ scale: li }] }]}>
+          <Animated.View style={[abs({ right: 20, top: 48, width: 48, height: 48 }), { borderRadius: 24, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center', opacity: li, transform: [{ scale: li.interpolate({ inputRange: [0, 1], outputRange: [near1(0), 1] }) }] }]}>
             <Color c={C.ink}>{big}</Color>
           </Animated.View>
           <T s={20} k style={{ paddingRight: 56, textShadowColor: 'rgba(0,0,0,0.35)', textShadowRadius: 2, textShadowOffset: { width: 0, height: 1 } }}>

@@ -4,7 +4,7 @@ import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { Animated, Easing, Image, Platform, View, type StyleProp, type ViewStyle } from 'react-native';
 import { SvgXml } from 'react-native-svg';
 import { FIGS, PNG, type FigNode } from '@/constants/img.gen';
-import { reduceMotion } from './core';
+import { near1, reduceMotion } from './core';
 
 const native = Platform.OS !== 'web';
 
@@ -16,7 +16,7 @@ const K: Record<string, KF> = {
   nudge: { at: [0, 0.25, 0.5, 0.75, 1], tx: [0, -8, 0, -5, 0], ty: [0, -6, 0, -3, 0], rot: [0, -5, 0, -3, 0] },
   shake: { at: [0, 0.15, 0.3, 0.45, 0.6, 0.75, 1], tx: [0, -7, 7, -5, 5, -2, 0] },
   lift: { at: [0, 0.4, 1], tx: [-30, -30, 0], ty: [64, 64, 0], rot: [-12, -12, 0] },
-  pop: { at: [0, 0.7, 1], op: [0, 1, 1], sc: [0.5, 1.08, 1] },
+  pop: { at: [0, 0.7, 1], op: [0, 1, 1], sc: [near1(0.5), near1(1.08), 1] },
   pulse: { at: [0, 0.5, 1], op: [1, 0.2, 1] },
   blink: { at: [0, 0.5, 1], op: [1, 0, 1] },
   appear: { at: [0, 1], op: [0, 1] },

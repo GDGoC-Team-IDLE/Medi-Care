@@ -41,6 +41,11 @@ AccessibilityInfo.isReduceMotionEnabled()
 AccessibilityInfo.addEventListener('reduceMotionChanged', (v) => (reduce = v));
 export const reduceMotion = () => reduce;
 const native = Platform.OS !== 'web';
+/**
+ * 움직이는 동안의 크기 변화 한도. 웹은 작게(또는 크게) 그린 층을 늘려 보여 주는 동안 글자·그림이 흐려지므로
+ * 들어오는 움직임도 1 근처(0.92~1.08)에서만 한다. 기기는 목업 값 그대로.
+ */
+export const near1 = (from: number) => (native ? from : Math.min(1.08, Math.max(0.92, from)));
 
 /** 뒤로/닫기가 있는 화면인지: 없는 화면은 개발용 목록 단추가 그 자리를 채운다. */
 const BackSlot = createContext<(on: boolean) => void>(() => {});
@@ -135,10 +140,16 @@ type TProps = Pos & {
   style?: StyleProp<TextStyle>;
   children: ReactNode;
   label?: string;
+  /** 이 폭(목업 px)을 넘으면 글자를 줄여 한 줄에 맞춘다(스테퍼의 '10일'처럼 칸이 정해진 큰 숫자) */
+  fit?: number;
 };
-export function T({ s, k, c, num, h, center, lh, style, children, label, ...pos }: TProps) {
+/** 굵은 글자 폭 어림(em, 넉넉히): 숫자·기호 0.66, 한글 1.0, 자간 −0.02. 글꼴마다 조금씩 달라 실제보다 크게 잡는다 */
+const emWidth = (t: string) => [...t].reduce((n, ch) => n + (/[0-9:./ ·]/.test(ch) ? 0.66 : 1) - 0.02, 0);
+export function T({ s, k, c, num, h, center, lh, style, children, label, fit, ...pos }: TProps) {
   const fg = useFg();
-  const size = s ?? (h ? 40 : 24);
+  const base = s ?? (h ? 40 : 24);
+  const text = typeof children === 'string' || typeof children === 'number' ? String(children) : Array.isArray(children) ? children.join('') : '';
+  const size = fit && text ? Math.min(base, Math.floor(fit / emWidth(text))) : base;
   const tight = num || h;
   const positioned = center || Object.keys(pos).length > 0;
   // 목업의 줄 높이(숫자 1 · 제목 1.15)는 글자 모양보다 낮아서, 기기·웹뷰가 줄 상자에 맞춰 자르면 숫자 위아래가 잘린다.
@@ -158,6 +169,8 @@ export function T({ s, k, c, num, h, center, lh, style, children, label, ...pos 
     <Text
       accessibilityLabel={label}
       allowFontScaling={false}
+      // 큰 숫자·제목은 줄이 바뀌면 아래 줄이 다른 것과 겹치거나 잘린다: 한 줄로
+      numberOfLines={num || fit ? 1 : undefined}
       style={[
         {
           fontSize: size,
@@ -243,7 +256,7 @@ export function Pop({ delay = 160, style, children }: { delay?: number; style?: 
   useEffect(() => {
     Animated.sequence([Animated.delay(delay), Animated.spring(v, { toValue: 1, friction: 6, tension: 140, useNativeDriver: native })]).start();
   }, [v, delay]);
-  return <Animated.View style={[style, { opacity: v.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 1 : 0.6, 1] }) }] }]}>{children}</Animated.View>;
+  return <Animated.View style={[style, { opacity: v.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 1 : near1(0.6), 1] }) }] }]}>{children}</Animated.View>;
 }
 
 /**
