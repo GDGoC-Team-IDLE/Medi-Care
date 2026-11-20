@@ -1,4 +1,3 @@
-
 import logging
 import re
 from datetime import date, datetime
@@ -169,7 +168,6 @@ def notify_guardian(
             "created_at": notification.created_at.replace(tzinfo=timezone),
         },
     }
-=======
 import re
 
 from fastapi import APIRouter, Depends, HTTPException, status
