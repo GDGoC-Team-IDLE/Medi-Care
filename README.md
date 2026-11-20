@@ -179,12 +179,13 @@ API 서비스는 `region: singapore`로 만들어집니다 (만든 뒤에는 바
 
 ## 복약 인증 (사진)
 
-`POST /api/v1/patients/{patient_id}/dose-slots/{slot_id}/verifications` (multipart `photo`, 어르신 기기 토큰)
+`POST /api/v1/patients/{patient_id}/dose-slots/{slot_id}/verifications` (multipart `image`. 어르신 폰은 `X-Device-Token` + `me`, 보호자 앱은 `Authorization: Bearer {JWT}` + 어르신 ID)
 
-- Gemini는 사진에서 약봉투 시간 표시와 알약 색·모양만 뽑고, 판정은 서버가 합니다. 판정 순서는 [routers/verifications.py](backend/app/routers/verifications.py), 색·모양 비교 규칙은 [services/pill_appearance.py](backend/app/services/pill_appearance.py) 맨 위 설명에 있습니다.
-- 등록된 약의 색·모양은 `drug_info.pill_json`(식약처 낱알식별 원본)의 `DRUG_SHAPE`, `COLOR_CLASS1/2`에서 읽습니다. 이 정보가 없는 약은 개수만 확인합니다.
-- 응답은 `{"success": true, "data": ...}` / `{"success": false, "error": {"code", "message"}}` 형식입니다 ([core/envelope.py](backend/app/core/envelope.py)).
-- 사진은 Supabase 설정이 있으면 Supabase Storage에, 없으면 `UPLOAD_DIR`에 저장합니다.
+- Gemini는 사진에서 약봉투 시간 표시와 알약 개수·색·모양만 뽑고, 판정(`OK` `RETAKE` `WRONG_TIME` `COUNT_MISMATCH` `ALREADY_TAKEN`)은 서버가 합니다. 판정 순서는 [routers/verifications.py](backend/app/routers/verifications.py), 색·모양 비교 규칙은 [services/pill_appearance.py](backend/app/services/pill_appearance.py) 맨 위 설명에 있습니다.
+- 색·모양 대조는 판정을 바꾸지 않고 OK일 때 `appearance_check`에 경고로만 담습니다. 등록된 약의 색·모양은 `drug_info.pill_json`(식약처 낱알식별 원본)의 `DRUG_SHAPE`, `COLOR_CLASS1/2`에서 읽고, 이 정보가 없으면 `UNKNOWN`입니다.
+- 사진 처리가 끝나면 판정과 관계없이 200이고, 에러는 `{"code", "message"}` 형식입니다. 오늘 회차만 인증할 수 있습니다.
+- `ALREADY_TAKEN` `WRONG_TIME` `COUNT_MISMATCH`이면 시도마다 `guardian_alerts`에 `WRONG_DOSE` 알림(`dose_log_id` 포함)을 남기고, 응답 직후 보호자 기기에 푸시를 보냅니다.
+- `RETAKE`를 뺀 시도는 사진과 결과를 `dose_logs`에 남깁니다. 사진은 Supabase 설정이 있으면 Supabase Storage에(응답의 `photo_url`은 10분짜리 서명 URL), 없으면 `UPLOAD_DIR`에 저장합니다(`photo_url`은 `null`).
 
 ## DB 테이블
 
@@ -207,7 +208,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `prescription_drugs` | 처방에 포함된 약 1종 | `item_seq`(NULL 가능) → drug_info, `count_per_dose`, `slots`(JSON 배열), `meal_timing` 기본 `AFTER` |
 | `dose_slots` | 날짜별 복용 회차 1건 | UNIQUE(`prescription_id`, `slot_date`, `slot`), INDEX(`patient_id`, `slot_date`), `expected_count`, `status` 기본 `PENDING` |
 | `dose_logs` | 복용 인증 사진 1건과 판정 | `dose_slot_id` → dose_slots, `photo_path`, `ai_json`, `result` |
-| `guardian_alerts` | 보호자 알림 내역 | UNIQUE(`dose_slot_id`, `type`), `push_sent_at`, `push_error` |
+| `guardian_alerts` | 보호자 알림 내역 | `MISSED` `WELFARE_CHECK` `MEDICATION_LOW` `DOSE_NO_RESPONSE`만 UNIQUE(`dose_slot_id`, `type`) (부분 인덱스), `dose_log_id`(WRONG_DOSE 시도) → dose_logs, `push_sent_at`, `push_error` |
 
 - 열거형 ([app/enums.py](backend/app/enums.py)) 값은 대문자 문자열로 저장됩니다 (DB 타입은 VARCHAR, PostgreSQL ENUM 타입 미사용 → 값 추가 시 ALTER 불필요).
 - `*_json`, `slots` 컬럼은 JSONB입니다.
@@ -218,7 +219,7 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `DoseStatus` | `PENDING` `DONE` `MISSED` `WRONG` |
 | `VerifyResult` | `OK` `WRONG_TIME` `ALREADY_TAKEN` `COUNT_MISMATCH` `APPEARANCE_MISMATCH` `RETAKE` |
 | `AlarmMode` | `POPUP` `FULLSCREEN` |
-| `GuardianAlertType` | `DOSE_NO_RESPONSE` |
+| `GuardianAlertType` | `DOSE_NO_RESPONSE` `WRONG_DOSE` |
 | `MealTiming` | `BEFORE` `AFTER` `ANY` |
 
 시간은 tz 정보 없이 서비스 시간대(Asia/Seoul) 기준으로 저장합니다. 현재 시각은 `datetime.now()` 대신 `app.core.clock.now_local()`을 씁니다.

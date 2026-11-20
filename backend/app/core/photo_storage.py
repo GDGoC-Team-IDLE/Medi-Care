@@ -8,7 +8,7 @@ from app.core.config import get_settings
 PHOTO_URL_EXPIRY_SECONDS = 300
 
 
-def sign_dose_photos(photo_paths: Iterable[str]) -> dict[str, str]:
+def sign_dose_photos(photo_paths: Iterable[str], expires_in: int = PHOTO_URL_EXPIRY_SECONDS) -> dict[str, str]:
     paths = list(dict.fromkeys(photo_paths))
     if not paths:
         return {}
@@ -22,7 +22,7 @@ def sign_dose_photos(photo_paths: Iterable[str]) -> dict[str, str]:
     key = settings.supabase_service_role_key
     request = Request(
         f"{storage_url}/object/sign/{bucket}",
-        data=json.dumps({"paths": paths, "expiresIn": PHOTO_URL_EXPIRY_SECONDS}).encode(),
+        data=json.dumps({"paths": paths, "expiresIn": expires_in}).encode(),
         headers={
             "apikey": key,
             "Authorization": f"Bearer {key}",

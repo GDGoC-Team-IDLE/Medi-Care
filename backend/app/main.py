@@ -6,6 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import models  # noqa: F401  (create_all 전에 테이블을 등록하기 위해 import)
 from app.core.config import get_settings
 from app.core.database import Base, engine
+from app.core.wrong_dose_alert_schema import upgrade_wrong_dose_alert_schema
 
 import importlib
 import pkgutil
@@ -26,6 +27,7 @@ API_PREFIX = "/api/v1"
 async def lifespan(_: FastAPI):
     # TODO: 스키마가 자리 잡으면 Alembic 마이그레이션으로 바꿉니다.
     Base.metadata.create_all(bind=engine)
+    upgrade_wrong_dose_alert_schema(engine)
     yield
 
 
