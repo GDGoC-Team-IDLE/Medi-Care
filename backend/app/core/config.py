@@ -55,6 +55,7 @@ class Settings(BaseSettings):
     # gemini-2.5-flash 는 새 키에서 404 입니다. 인식이 부족하면 gemini-3.8-flash (약 5배 비쌈).
     gemini_model: str = "gemini-3.5-flash-lite"
     gemini_timeout_seconds: float = 30
+    mfds_service_key: str = ""
 
     # ── 주기 작업 ──
     # 외부 크론(cron-job.org)이 POST /api/v1/internal/tick 을 부를 때 X-Cron-Secret 헤더로 보내는 값

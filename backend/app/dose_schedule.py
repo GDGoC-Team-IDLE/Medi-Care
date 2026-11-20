@@ -15,7 +15,7 @@ SLOT_TIMES = {
     Slot.MORNING: time(8, 0),
     Slot.LUNCH: time(12, 30),
     Slot.DINNER: time(18, 30),
-    Slot.BEDTIME: time(22, 0),
+    Slot.BEDTIME: time(21, 30),
 }
 
 
