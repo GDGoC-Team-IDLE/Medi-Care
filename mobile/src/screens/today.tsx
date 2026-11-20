@@ -1,5 +1,5 @@
 // 오늘 (허브) · 기록 ("오늘 약 먹었나요?" → 지난 날 목록 → 그날) · 기기 권한(알림 꺼짐) · 약 없음 뒤 허브
-import { useFocusEffect } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useState } from 'react';
 import { Animated, AppState, Easing, Image, Linking, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
@@ -130,13 +130,16 @@ function trayOf(slots: TodaySlot[]) {
   });
 }
 
-/** 오늘 회차. undefined = 불러오는 중 · null = 기기 연결 전(화면 목록 → 예시) · 'error' = 연결된 폰인데 못 불러옴. 화면에 올 때마다 다시 본다 */
-function useTodaySlots() {
+/**
+ * 오늘(date 를 주면 그날) 회차. undefined = 불러오는 중 · null = 기기 연결 전(화면 목록 → 예시) · 'error' = 연결된 폰인데 못 불러옴.
+ * 화면에 올 때마다 다시 본다
+ */
+function useTodaySlots(date?: string) {
   const [slots, setSlots] = useState<TodaySlot[] | null | undefined | 'error'>(undefined);
   const load = useCallback(() => {
     let live = true;
     api
-      .get<{ slots: TodaySlot[] }>('/patients/me/dose-slots')
+      .get<{ slots: TodaySlot[] }>('/patients/me/dose-slots', date ? { date } : undefined)
       .then((r) => live && setSlots(r.slots))
       // 실제 어르신 폰에서 예시 약을 안내하면 안 되므로, 기기 토큰이 있으면 예시 대신 오류를 보인다
       .catch(async () => {
@@ -146,9 +149,50 @@ function useTodaySlots() {
     return () => {
       live = false;
     };
-  }, []);
+  }, [date]);
   useFocusEffect(load);
   return { slots, retry: () => (setSlots(undefined), load()) };
+}
+
+const WEEKDAY = '일월화수목금토';
+const ymd = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+/** '2026-11-19' → { short: '19일 목', long: '19일 목요일' } */
+function dayLabel(date: string) {
+  const d = new Date(`${date}T00:00:00`);
+  return { short: `${d.getDate()}일 ${WEEKDAY[d.getDay()]}`, long: `${d.getDate()}일 ${WEEKDAY[d.getDay()]}요일` };
+}
+
+/** 어제부터 n 일 동안의 회차 (GET /patients/me/dose-slots?date=). 상태 뜻은 useTodaySlots 와 같다 */
+function usePastDays(n = 6) {
+  const [days, setDays] = useState<{ date: string; slots: TodaySlot[] }[] | null | undefined | 'error'>(undefined);
+  const load = useCallback(() => {
+    let live = true;
+    const dates = Array.from({ length: n }, (_, i) => {
+      const d = new Date();
+      d.setDate(d.getDate() - i - 1);
+      return ymd(d);
+    });
+    Promise.all(dates.map((date) => api.get<{ slots: TodaySlot[] }>('/patients/me/dose-slots', { date }).then((r) => ({ date, slots: r.slots }))))
+      .then((d) => live && setDays(d))
+      .catch(async () => {
+        const paired = !!(await getItem(TOKEN_KEYS.device));
+        if (live) setDays(paired ? 'error' : null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [n]);
+  useFocusEffect(load);
+  return { days, retry: () => (setDays(undefined), load()) };
+}
+
+/** 지난 날 칸 하나(아침·점심·저녁). 회차가 없으면 null. 지난 날에 인증이 없는 회차는 기록 없음 */
+function pastMark(slots: TodaySlot[], time: DoseTime): Status | null {
+  const same = slots.filter((s) => s.slot === time);
+  if (!same.length) return null;
+  if (same.some((s) => s.status === 'WRONG')) return 'wrong';
+  if (same.some((s) => s.status !== 'DONE')) return 'missed';
+  return 'done';
 }
 
 /** 연결된 어르신 폰에서 오늘 회차를 못 불러왔을 때. 예시 약을 보이지 않는다 */
@@ -427,8 +471,8 @@ const RESULT_NOTE: Record<string, string> = { COUNT_MISMATCH: '개수 다름', W
 const clock = (iso: string) => new Date(iso);
 type DayRow = { time: DoseTime; status: Status; note: string; noteColor?: string; photoUri?: string; say: string };
 
-/** 오늘 회차를 시간대마다 한 줄로. 처방이 여럿이면 같은 시간대 회차가 여럿이라 합친다 */
-function dayRows(slots: TodaySlot[]): DayRow[] {
+/** 그날 회차를 시간대마다 한 줄로. 처방이 여럿이면 같은 시간대 회차가 여럿이라 합친다. past = 지난 날(인증 없는 회차는 기록 없음) */
+function dayRows(slots: TodaySlot[], past = false): DayRow[] {
   return (['MORNING', 'LUNCH', 'DINNER', 'BEDTIME'] as DoseTime[]).flatMap((time): DayRow[] => {
     const same = slots.filter((s) => s.slot === time);
     if (!same.length) return [];
@@ -448,6 +492,7 @@ function dayRows(slots: TodaySlot[]): DayRow[] {
     }
     if (same.some((s) => s.status === 'MISSED')) return [{ time, status: 'missed', note: '기록 없음', noteColor: C.misst, say: `${name} 약은 기록이 없어요` }];
     const some = same.some((s) => s.status === 'DONE'); // 처방이 여럿인데 일부만 드심
+    if (past) return [{ time, status: 'missed', note: some ? '일부 완료' : '기록 없음', noteColor: C.misst, say: `${name} 약은 기록이 없어요` }];
     return [{ time, status: 'planned', note: some ? '일부 완료' : '예정', noteColor: C.plan, say: `${name} 약은 아직이에요` }];
   });
 }
@@ -514,30 +559,46 @@ const PAST: [string, Status, Status, Status][] = [
   ['14일 토', 'done', 'done', 'done'],
 ];
 
-/** p33 지난 날: 월 달력 대신 6일 목록. 모양 셋 = 아침·점심·저녁 */
+/**
+ * p33 지난 날: 월 달력 대신 6일 목록. 모양 셋 = 아침·점심·저녁.
+ * 어제부터 6일 중 회차가 있는 날만, 없는 시간대 칸은 비운다. 기기 연결 전(화면 목록)이면 예시
+ */
 export function PastDays() {
+  const { days, retry } = usePastDays();
+  if (days === undefined) return <Phone>{null}</Phone>;
+  if (days === 'error') return <LoadFail retry={retry} />;
+  const list =
+    days === null
+      ? PAST.map(([day, a, b, c]) => ({ key: day, label: day, marks: [a, b, c] as (Status | null)[], href: 'c09-day' }))
+      : days
+          .filter((d) => d.slots.length)
+          .map((d) => ({ key: d.date, label: dayLabel(d.date).short, marks: TRAY_TIMES.map((t) => pastMark(d.slots, t)), href: `c09-day?date=${d.date}` }));
   return (
     <Phone>
       <Back />
-      <Say text="지난 날 기록이에요. 날짜를 누르면 그날 사진을 볼 수 있어요." />
+      <Say text={list.length ? '지난 날 기록이에요. 날짜를 누르면 그날 사진을 볼 수 있어요.' : '지난 기록이 없어요.'} />
       <T h left={28} top={132}>
         지난 기록
       </T>
-      <View style={[abs({ left: 28, right: 28, top: 192 }), { flexDirection: 'row', justifyContent: 'flex-end', gap: 16 }]}>
-        {(['sunrise', 'sun', 'moon'] as const).map((n) => (
-          <View key={n} style={{ width: 40, alignItems: 'center' }}>
-            <Icon name={n} size={24} c={C.ink2} />
-          </View>
-        ))}
-      </View>
-      {PAST.map(([day, a, b, c], i) => (
-        <Tap key={day} onPress={() => go('c09-day')} style={[abs({ left: 28, right: 28, top: 228 + i * 68, height: 60 }), { flexDirection: 'row', alignItems: 'center', gap: 16 }]}>
+      {list.length ? (
+        <View style={[abs({ left: 28, right: 28, top: 192 }), { flexDirection: 'row', justifyContent: 'flex-end', gap: 16 }]}>
+          {(['sunrise', 'sun', 'moon'] as const).map((n) => (
+            <View key={n} style={{ width: 40, alignItems: 'center' }}>
+              <Icon name={n} size={24} c={C.ink2} />
+            </View>
+          ))}
+        </View>
+      ) : (
+        <T k left={28} right={28} top={228}>
+          지난 기록이 없어요
+        </T>
+      )}
+      {list.map((r, i) => (
+        <Tap key={r.key} onPress={() => go(r.href)} style={[abs({ left: 28, right: 28, top: 228 + i * 68, height: 60 }), { flexDirection: 'row', alignItems: 'center', gap: 16 }]}>
           <T k style={{ flex: 1 }}>
-            {day}
+            {r.label}
           </T>
-          <StatusMark s={a} size={40} />
-          <StatusMark s={b} size={40} />
-          <StatusMark s={c} size={40} />
+          {r.marks.map((m, j) => (m ? <StatusMark key={j} s={m} size={40} /> : <View key={j} style={{ width: 40 }} />))}
         </Tap>
       ))}
       <Btn label="확인" onPress={back} />
@@ -545,8 +606,38 @@ export function PastDays() {
   );
 }
 
-/** c09 그날의 기록. 한 회차에 여러 장이면 마지막 판정 사진 한 장 */
+/** c09 그날의 기록. 한 회차에 여러 장이면 마지막 판정 사진 한 장. p33 에서 ?date= 로 온다(없으면 예시) */
 export function Day() {
+  const { date } = useLocalSearchParams<{ date?: string }>();
+  const { slots, retry } = useTodaySlots(date);
+  if (date) {
+    if (slots === undefined) return <Phone>{null}</Phone>;
+    if (slots === 'error') return <LoadFail retry={retry} />;
+    if (slots !== null) {
+      const rows = dayRows(slots, true);
+      const { long } = dayLabel(date);
+      const four = rows.length > 3; // 자기 전까지 네 줄이면 버튼에 닿지 않게 좁힌다
+      return (
+        <Phone>
+          <Back />
+          <Say text={`${long}. ${rows.length ? rows.map((r) => r.say).join('. ') : '이날은 드실 약이 없었어요'}.`} />
+          <T h left={28} top={132}>
+            {long}
+          </T>
+          {rows.length ? (
+            rows.map((r, i) => (
+              <TimeRow key={r.time} i={i} top={(four ? 204 : 228) + i * (four ? 100 : 120)} status={r.status} name={SLOT_ROW[r.time].name} note={r.note} noteColor={r.noteColor} photoUri={r.photoUri} />
+            ))
+          ) : (
+            <T k left={28} right={28} top={228}>
+              이날은 드실 약이 없었어요
+            </T>
+          )}
+          <Btn label="닫기" onPress={back} />
+        </Phone>
+      );
+    }
+  }
   return (
     <Phone>
       <Back />
