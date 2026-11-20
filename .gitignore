@@ -1,0 +1,28 @@
+# 환경 변수 (비밀 값 포함 - 절대 커밋 금지)
+.env
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.pytest_cache/
+*.egg-info/
+
+# 예전 기능 코드 보관 폴더 (mobile/_old)
+_old/
+
+# 로컬 실행 시 생기는 파일
+backend/uploads/
+backend/*.db
+
+# IDE / OS
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+#추가 깃이그노어
+/mobile/LICENSE
+/mobile/.claude/settings.json
+/mobile/AGENTS.md

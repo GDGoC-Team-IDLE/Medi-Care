@@ -1,0 +1,3 @@
+-r requirements.txt
+pytest>=8
+httpx2  # FastAPI TestClient 용 (Starlette 1.x 권장)
