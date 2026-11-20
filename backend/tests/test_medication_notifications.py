@@ -12,7 +12,7 @@ from app.core.config import get_settings
 from app.core.database import SessionLocal
 from app.main import app
 from app.models import Guardian, GuardianNotification, Patient, Prescription, PushToken
-from app.routers import notifications
+from app.routers import guardian_notifications
 
 URL = "/api/v1/notifications/guardian/"
 AUTH = {"Authorization": "Bearer internal-test"}
@@ -110,7 +110,7 @@ def test_notification_rejects_invalid_or_unauthorized_requests(notification_requ
     def fail(*args):
         raise RuntimeError("database is unavailable")
 
-    monkeypatch.setattr(notifications, "queue_medication_low", fail)
+    monkeypatch.setattr(guardian_notifications, "queue_medication_low", fail)
     response = client.post(URL, headers=AUTH, json=data)
     assert response.status_code == 500
     assert response.json()["error"]["code"] == "INTERNAL_SERVER_ERROR"

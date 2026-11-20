@@ -51,7 +51,8 @@
 │   │       ├── auth.py          # 보호자 가입·로그인·토큰·탈퇴
 │   │       ├── patients.py      # 어르신 등록·기기 연결·기기 인증
 │   │       ├── notifications.py # 보호자 푸시 토큰·15분 무응답 알림
-│   │       ├── dose_status.py   # GET /api/v1/patients/{patient_id}/status
+│   │       ├── guardian_notifications.py # 약 소진 보호자 알림 (내부 호출)
+│   │       ├── dose_status.py # GET /api/v1/patients/{patient_id}/status
 │   │       ├── verifications.py # 복약 인증 사진 판정
 │   │       └── health.py        # GET /api/v1/health
 │   └── tests/            # SQLite로 smoke 및 인증 전체 흐름 테스트
