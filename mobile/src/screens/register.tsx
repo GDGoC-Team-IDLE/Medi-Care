@@ -2,9 +2,10 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { back, go, swap } from '@/lib/nav';
+import { api, ApiError, appendFile } from '@/lib/api';
 import { C, R } from '@/constants/theme';
 import { Icon, Ill, Phone, Pop, Row, T, Tap, Up, abs, type IconName, type IllName } from '@/components/core';
-import { Back, Btn, CamTitle, Say, ScanCard, Shutter, Sub, Tray, Viewfinder, type ScanSpec } from '@/components/parts';
+import { Back, Btn, CamTitle, Say, ScanCard, Shutter, Sub, Tray, Viewfinder, lastShot, type ScanSpec } from '@/components/parts';
 
 /** 행 끝의 ›: 보이는 선의 오른쪽 끝이 끝선 28 에 오게 당긴다 */
 const CHEV = { marginRight: -12 };
@@ -47,14 +48,69 @@ const READ: ScanSpec = {
   ],
 };
 
+type Slot = 'MORNING' | 'LUNCH' | 'DINNER' | 'BEDTIME';
+
+/** POST /prescriptions/analyze 응답 (쓰는 칸만) */
+interface Preview {
+  drugs: { name: string; count_per_dose: number; slots: Slot[]; days: number }[];
+  needs_retake: boolean;
+}
+
+/** 마지막 분석 결과. p12 가 받고 p23 이 보여 준다 (없으면 예시) */
+let preview: Preview | null = null;
+
+/** 장면(밑줄·칸 채우기)이 끝나는 시각. 응답이 빨리 와도 여기까지는 보여 준다 */
+const SCENE_MS = 5900;
+/** 이보다 오래 걸리면 p15t */
+const SLOW_MS = 8000;
+
+async function analyze(uri: string): Promise<Preview> {
+  const form = new FormData();
+  await appendFile(form, 'image', { uri, name: 'envelope.jpg', type: 'image/jpeg' });
+  return api.postForm<Preview>('/prescriptions/analyze', form);
+}
+
+/** 분석 실패 → 화면. 다시 해 보기가 약봉투 찍기로 오도록 retry 를 붙인다 */
+function failRoute(x: unknown): string {
+  const status = x instanceof ApiError ? x.status : -1;
+  if (status === 413 || status === 415) return 'p13-noread';
+  if (status === 0) return 'p15-offline?retry=p01-scan';
+  return 'p15t-slow?retry=p01-scan'; // 503 AI_UNAVAILABLE 등
+}
+
 /**
- * p12 읽는 중. 목업은 4.4s 에 응답이 오는 장면. 앱에서는 응답이 올 때까지 훑기를 되풀이하고(8초 넘으면 p15t),
- * 응답이 오면 지금 훑기를 끝까지 보낸 뒤 밑줄로 넘어간다. 서버 전이라 장면이 끝나면 회차 확인으로 간다.
+ * p12 읽는 중. 찍은 사진을 POST /prescriptions/analyze 로 보낸다.
+ * 읽었으면 장면이 끝난 뒤 p23, 못 읽었으면 바로 p13, 8초가 넘으면 p15t.
+ * 찍은 사진 없이 열면(화면 목록) 예전처럼 장면이 끝나면 예시 회차 확인으로 간다.
  */
 export function Reading() {
   useEffect(() => {
-    const t = setTimeout(() => swap('p23-review'), 5900);
-    return () => clearTimeout(t);
+    const uri = lastShot();
+    if (!uri) {
+      const t = setTimeout(() => swap('p23-review'), SCENE_MS);
+      return () => clearTimeout(t);
+    }
+    let done = false;
+    const to = (id: string) => {
+      if (done) return;
+      done = true;
+      swap(id);
+    };
+    const started = Date.now();
+    const slow = setTimeout(() => to('p15t-slow?retry=p01-scan'), SLOW_MS);
+    analyze(uri).then(
+      (p) => {
+        if (done) return;
+        if (p.needs_retake || !p.drugs.length) return to('p13-noread');
+        preview = p;
+        setTimeout(() => to('p23-review'), Math.max(0, SCENE_MS - (Date.now() - started)));
+      },
+      (x) => to(failRoute(x)),
+    );
+    return () => {
+      done = true;
+      clearTimeout(slow);
+    };
   }, []);
   return (
     <Phone>
@@ -81,19 +137,40 @@ function SlotRow({ top, pouch, name, count, onPress, i = 0 }: { top: number; pou
   );
 }
 
+const SLOT_ROW: Record<Slot, { name: string; pouch: IllName }> = {
+  MORNING: { name: '아침', pouch: 'pouch-morning' },
+  LUNCH: { name: '점심', pouch: 'pouch-noon' },
+  DINNER: { name: '저녁', pouch: 'pouch-evening' },
+  BEDTIME: { name: '자기 전', pouch: 'pouch-blank' },
+};
+/** 읽어 줄 때 알 수는 고유어로 (두 알, 세 알) */
+const SAY_COUNT = ['영', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟', '아홉', '열'];
+
+/** 분석 결과 → 복용 일수 · 회차별 알 수. 결과가 없으면 예시(7일, 아침 2 · 점심 2 · 저녁 3) */
+function summary(p: Preview | null): { days: number; rows: [Slot, number][] } {
+  if (!p) return { days: 7, rows: [['MORNING', 2], ['LUNCH', 2], ['DINNER', 3]] };
+  const rows = (Object.keys(SLOT_ROW) as Slot[])
+    .map((s): [Slot, number] => [s, p.drugs.filter((d) => d.slots.includes(s)).reduce((n, d) => n + d.count_per_dose, 0)])
+    .filter(([, n]) => n > 0);
+  return { days: Math.max(...p.drugs.map((d) => d.days)), rows };
+}
+
 /** p23 회차 요약. 행 → 그 회차의 약 목록, 제목 → 복용 일수 */
 export function Review() {
+  const { days, rows } = summary(preview);
+  const four = rows.length > 3; // 자기 전까지 네 줄이면 버튼에 닿지 않게 좁힌다
+  const said = rows.map(([s, n]) => `${SLOT_ROW[s].name} ${SAY_COUNT[n] ?? n} 알`).join(', ');
   return (
     <Phone>
       <Back />
-      <Say text="칠 일치 약이에요. 아침 두 알, 점심 두 알, 저녁 세 알. 맞으면 맞아요를 눌러 주세요." />
+      <Say text={`${days}일치 약이에요. ${said}. 맞으면 맞아요를 눌러 주세요.`} />
       <Tap onPress={() => go('p25d-days')} style={[abs({ left: 28, top: 121, height: 60 }), { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
-        <T h>7일치 약</T>
+        <T h>{days}일치 약</T>
         <Icon name="chevron-right" />
       </Tap>
-      <SlotRow top={228} pouch="pouch-morning" name="아침" count="2알" onPress={() => go('p23b-slot')} />
-      <SlotRow i={1} top={348} pouch="pouch-noon" name="점심" count="2알" onPress={() => go('p23b-slot')} />
-      <SlotRow i={2} top={468} pouch="pouch-evening" name="저녁" count="3알" onPress={() => go('p23b-slot')} />
+      {rows.map(([s, n], i) => (
+        <SlotRow key={s} i={i} top={(four ? 204 : 228) + i * (four ? 100 : 120)} pouch={SLOT_ROW[s].pouch} name={SLOT_ROW[s].name} count={`${n}알`} onPress={() => go('p23b-slot')} />
+      ))}
       <Btn two label="맞아요" onPress={() => go('p03-caution')} />
       <Sub label="잘 모르겠어요" onPress={() => go('p22-unsure')} />
     </Phone>
