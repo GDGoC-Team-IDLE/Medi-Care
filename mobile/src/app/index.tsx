@@ -12,7 +12,7 @@ export default function Index() {
       <ScrollView contentContainerStyle={{ padding: 28, paddingBottom: 64, maxWidth: 520, width: '100%', alignSelf: 'center' }}>
         <Text style={{ fontSize: 40, fontWeight: '800', color: C.ink, letterSpacing: -1.2 }}>Medi-Care</Text>
         <Text style={{ fontSize: 16, fontWeight: '600', color: C.ink2, marginTop: 4 }}>화면 {FLOWS.reduce((n, f) => n + f.screens.length, 0)}개 · 눌러서 열기</Text>
-        <Tap onPress={() => go('c01-login')} style={{ marginTop: 24, height: 64, borderRadius: 32, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
+        <Tap onPress={() => go('c01-login')} style={{ marginTop: 24, height: 64, borderRadius: 20, backgroundColor: C.ink, alignItems: 'center', justifyContent: 'center' }}>
           <Text style={{ fontSize: 20, fontWeight: '800', color: C.paper }}>처음부터 시작</Text>
         </Tap>
         {FLOWS.map((f) => (

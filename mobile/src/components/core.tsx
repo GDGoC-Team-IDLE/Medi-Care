@@ -4,6 +4,7 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
+  Image,
   Keyboard,
   Platform,
   Pressable,
@@ -19,6 +20,7 @@ import { SvgXml } from 'react-native-svg';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ICONS, ILLUST, type IconName, type IllName } from '@/constants/assets.gen';
+import { PNG, SYMBOL_PNG } from '@/constants/img.gen';
 import { C, H, W } from '@/constants/theme';
 
 export type { IconName, IllName };
@@ -39,6 +41,11 @@ AccessibilityInfo.isReduceMotionEnabled()
 AccessibilityInfo.addEventListener('reduceMotionChanged', (v) => (reduce = v));
 export const reduceMotion = () => reduce;
 const native = Platform.OS !== 'web';
+/**
+ * 움직이는 동안의 크기 변화 한도. 웹은 작게(또는 크게) 그린 층을 늘려 보여 주는 동안 글자·그림이 흐려지므로
+ * 들어오는 움직임도 1 근처(0.92~1.08)에서만 한다. 기기는 목업 값 그대로.
+ */
+export const near1 = (from: number) => (native ? from : Math.min(1.08, Math.max(0.92, from)));
 
 /** 뒤로/닫기가 있는 화면인지: 없는 화면은 개발용 목록 단추가 그 자리를 채운다. */
 const BackSlot = createContext<(on: boolean) => void>(() => {});
@@ -72,21 +79,28 @@ export function Phone({
       style={{ flex: 1, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
     >
       <StatusBar style={fg === C.ink ? 'dark' : 'light'} />
-      <Animated.View
-        style={{
-          width: W,
-          height: H,
-          opacity: enter,
-          transform: [{ scale: s }, { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 0 : 12, 0] }) }],
-        }}
-      >
-        <Fg.Provider value={fg}>
-          <BackSlot.Provider value={setHasBack}>
-            {children}
-            {__DEV__ && !native && !hasBack && <DevList />}
-          </BackSlot.Provider>
-        </Fg.Provider>
-      </Animated.View>
+      {/*
+        목업 390×844 좌표를 기기 크기로 늘린다. 기기(네이티브)는 transform scale 로도 선명하지만,
+        웹은 transform 으로 늘린 층을 비트맵으로 늘려 누르거나 움직일 때 글자·그림이 흐려진다.
+        그래서 웹은 CSS zoom 으로 늘려 처음부터 그 크기로 다시 그리게 한다.
+      */}
+      <View style={(native ? { width: W, height: H, transform: [{ scale: s }] } : { width: W, height: H, zoom: s }) as ViewStyle}>
+        <Animated.View
+          style={{
+            width: W,
+            height: H,
+            opacity: enter,
+            transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 0 : 12, 0] }) }],
+          }}
+        >
+          <Fg.Provider value={fg}>
+            <BackSlot.Provider value={setHasBack}>
+              {children}
+              {__DEV__ && !native && !hasBack && <DevList />}
+            </BackSlot.Provider>
+          </Fg.Provider>
+        </Animated.View>
+      </View>
     </View>
   );
 }
@@ -115,9 +129,9 @@ type TProps = Pos & {
   k?: boolean;
   /** 색 */
   c?: string;
-  /** 숫자·큰 글자: 800, 자간 -0.03em, 줄 높이 1 */
+  /** 숫자·큰 글자: 800, 자간 -0.02em, 줄 높이 1 */
   num?: boolean;
-  /** 제목: 40/800, 자간 -0.03em, 줄 높이 1.15 */
+  /** 제목: 40/800, 자간 -0.01em, 줄 높이 1.15 */
   h?: boolean;
   /** 가운데 정렬(좌우 0) */
   center?: boolean;
@@ -126,28 +140,51 @@ type TProps = Pos & {
   style?: StyleProp<TextStyle>;
   children: ReactNode;
   label?: string;
+  /** 이 폭(목업 px)을 넘으면 글자를 줄여 한 줄에 맞춘다(스테퍼의 '10일'처럼 칸이 정해진 큰 숫자) */
+  fit?: number;
 };
-export function T({ s, k, c, num, h, center, lh, style, children, label, ...pos }: TProps) {
+/** 굵은 글자 폭 어림(em, 넉넉히): 숫자·기호 0.66, 한글 1.0, 자간 −0.02. 글꼴마다 조금씩 달라 실제보다 크게 잡는다 */
+const emWidth = (t: string) => [...t].reduce((n, ch) => n + (/[0-9:./ ·]/.test(ch) ? 0.66 : 1) - 0.02, 0);
+export function T({ s, k, c, num, h, center, lh, style, children, label, fit, ...pos }: TProps) {
   const fg = useFg();
-  const size = s ?? (h ? 40 : 24);
+  const base = s ?? (h ? 40 : 24);
+  const text = typeof children === 'string' || typeof children === 'number' ? String(children) : Array.isArray(children) ? children.join('') : '';
+  const size = fit && text ? Math.min(base, Math.floor(fit / emWidth(text))) : base;
   const tight = num || h;
   const positioned = center || Object.keys(pos).length > 0;
+  // 목업의 줄 높이(숫자 1 · 제목 1.15)는 글자 모양보다 낮아서, 기기·웹뷰가 줄 상자에 맞춰 자르면 숫자 위아래가 잘린다.
+  // 그래서 실제 줄 상자는 글자가 다 들어가는 높이(1.35 이상)로 키우고, 늘어난 만큼 위아래로 반씩 당겨 목업 자리를 그대로 지킨다.
+  const box = Math.round(size * (lh ?? (num ? 1 : h ? 1.15 : 1.25)));
+  const line = Math.max(box, Math.ceil(size * 1.35));
+  const pull = (line - box) / 2;
+  const shift: TextStyle =
+    pull === 0
+      ? {}
+      : pos.top != null
+        ? { top: pos.top - pull }
+        : pos.bottom != null
+          ? { bottom: pos.bottom - pull }
+          : { marginVertical: -pull };
   return (
     <Text
       accessibilityLabel={label}
       allowFontScaling={false}
+      // 큰 숫자·제목은 줄이 바뀌면 아래 줄이 다른 것과 겹치거나 잘린다: 한 줄로
+      numberOfLines={num || fit ? 1 : undefined}
       style={[
         {
           fontSize: size,
           fontWeight: k || tight ? '800' : '600',
           color: c ?? fg,
-          lineHeight: Math.round(size * (lh ?? (num ? 1 : h ? 1.15 : 1.25))),
-          letterSpacing: tight ? -0.03 * size : 0,
+          lineHeight: line,
+          textAlignVertical: 'center',
+          letterSpacing: num ? -0.02 * size : h ? -0.01 * size : 0,
           includeFontPadding: false,
           fontVariant: ['tabular-nums'],
         },
         positioned && { position: 'absolute', ...pos },
         center && { left: 0, right: 0, textAlign: 'center' },
+        shift,
         style,
       ]}
     >
@@ -166,8 +203,10 @@ export function Icon({ name, size = 32, c, style }: { name: IconName; size?: num
   return <SvgXml xml={xml} width={size} height={size} color={c ?? fg} style={style} />;
 }
 
-/** 삽화 */
+/** 삽화. 6판에서 Blender 로 다듬은 그림(알약·약포·인증 사진)은 PNG, 나머지(상태 모양·빈 알약 자리 등)는 SVG */
 export function Ill({ name, w = 56, h, style }: { name: IllName; w?: number; h?: number; style?: StyleProp<ViewStyle> }) {
+  const png = SYMBOL_PNG[name];
+  if (png) return <Image source={PNG[png[0]]} resizeMode="contain" style={[{ width: w, height: h ?? w }, style as StyleProp<object>]} />;
   return <SvgXml xml={ILLUST[name]} width={w} height={h ?? w} style={style} />;
 }
 
@@ -178,7 +217,10 @@ export function StatusMark({ s, size = 48, style }: { s: Status; size?: number; 
 }
 
 const APressable = Animated.createAnimatedComponent(Pressable);
-/** 누를 수 있는 곳. 누르면 살짝 들어가며 흐려지고, 떼면 돌아온다. */
+/**
+ * 누를 수 있는 곳. 누르는 동안 옅어지고(투명도만), 떼면 돌아온다.
+ * 크기를 줄이는 눌림(scale)은 웹에서 그 층을 비트맵으로 늘려 글자·그림이 흐려져서 쓰지 않는다.
+ */
 export function Tap({
   style,
   children,
@@ -201,13 +243,7 @@ export function Tap({
         to(0);
         onPressOut?.(e);
       }}
-      style={[
-        style,
-        {
-          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.7] }),
-          transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, card ? 0.985 : 0.97] }) }],
-        },
-      ]}
+      style={[style, { opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, card ? 0.85 : 0.7] }) }]}
     >
       {children}
     </APressable>
@@ -220,7 +256,104 @@ export function Pop({ delay = 160, style, children }: { delay?: number; style?: 
   useEffect(() => {
     Animated.sequence([Animated.delay(delay), Animated.spring(v, { toValue: 1, friction: 6, tension: 140, useNativeDriver: native })]).start();
   }, [v, delay]);
-  return <Animated.View style={[style, { opacity: v.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 1 : 0.6, 1] }) }] }]}>{children}</Animated.View>;
+  return <Animated.View style={[style, { opacity: v.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 1 : near1(0.6), 1] }) }] }]}>{children}</Animated.View>;
+}
+
+/**
+ * 그림의 움직임. 화면이 하는 말을 그림이 몸짓으로 한 번 더 한다.
+ * in = 조용히 나타남 · ok = 통 하고 자리잡음(맞아요) · no = 좌우로 도리도리(아니에요) · wobble = 한 번 흔들림(흔들린 사진)
+ * ring = 울리는 중(되풀이) · float = 기다리는 중(천천히 떠 있음) · beat = 여기를 보세요(맥박) · breathe = 놓을 자리(옅어졌다 진해짐)
+ * '동작 줄이기'가 켜져 있으면 흐려짐만 남긴다.
+ */
+export type MoveKind = 'in' | 'ok' | 'no' | 'wobble' | 'ring' | 'float' | 'beat' | 'breathe';
+const SWING = [0, 0.2, 0.4, 0.6, 0.8, 1];
+const swing = (v: Animated.Value, amp: number, unit?: 'deg') => {
+  const out = [0, -amp, amp, -amp * 0.6, amp * 0.6, 0];
+  return unit ? v.interpolate({ inputRange: SWING, outputRange: out.map((n) => `${n}${unit}`) }) : v.interpolate({ inputRange: SWING, outputRange: out });
+};
+export function Move({
+  kind = 'in',
+  delay = 60,
+  x = 0,
+  loud,
+  style,
+  children,
+}: {
+  kind?: MoveKind;
+  delay?: number;
+  /** 들어올 때 옆에서 오는 거리 */
+  x?: number;
+  /** ring 을 더 크게·자주 */
+  loud?: boolean;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const [a] = useState(() => new Animated.Value(0));
+  const [b] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const t = (toValue: number, duration: number, easing = Easing.linear) => Animated.timing(b, { toValue, duration, easing, useNativeDriver: native });
+    const soft = Easing.inOut(Easing.sin);
+    const enter =
+      kind === 'ok' && !reduce
+        ? Animated.spring(a, { toValue: 1, friction: 5, tension: 120, useNativeDriver: native })
+        : Animated.timing(a, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: native });
+    const after = reduce
+      ? null
+      : kind === 'no'
+        ? t(1, 420)
+        : kind === 'wobble'
+          ? t(1, 640)
+          : kind === 'ring'
+            ? Animated.loop(Animated.sequence([t(1, 640), Animated.delay(loud ? 500 : 1400)]))
+            : kind === 'float'
+              ? Animated.loop(Animated.sequence([t(1, 1600, soft), t(0, 1600, soft)]))
+              : kind === 'beat'
+                ? Animated.loop(Animated.sequence([t(1, 300, soft), t(0, 300, soft), Animated.delay(900)]))
+                : kind === 'breathe'
+                  ? Animated.loop(Animated.sequence([t(1, 900, soft), t(0, 900, soft)]))
+                  : null;
+    const all = Animated.sequence([Animated.delay(delay), enter, ...(after ? [after] : [])]);
+    all.start();
+    return () => all.stop();
+  }, [a, b, kind, delay, loud]);
+  const fade = a.interpolate({ inputRange: [0, 0.6], outputRange: [0, 1], extrapolate: 'clamp' });
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: kind === 'breathe' ? Animated.multiply(fade, b.interpolate({ inputRange: [0, 1], outputRange: [1, 0.35] })) : fade,
+          transform: [
+            { translateX: a.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 0 : x, 0] }) },
+            { scale: a.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 1 : kind === 'ok' ? 0.6 : 0.94, 1] }) },
+            { translateX: kind === 'no' ? swing(b, 10) : 0 },
+            { translateY: kind === 'float' ? b.interpolate({ inputRange: [0, 1], outputRange: [0, -6] }) : 0 },
+            { rotate: kind === 'ring' ? swing(b, loud ? 9 : 5, 'deg') : kind === 'wobble' ? swing(b, 7, 'deg') : '0deg' },
+            { scale: kind === 'beat' ? b.interpolate({ inputRange: [0, 1], outputRange: [1, 1.14] }) : 1 },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** 아래에서 16 올라오며 나타남(목업 mv-up). delay 는 초 */
+export function Up({ delay = 0, style, children }: { delay?: number; style?: StyleProp<ViewStyle>; children: ReactNode }) {
+  const [v] = useState(() => new Animated.Value(reduce ? 1 : 0));
+  useEffect(() => {
+    if (reduce) return;
+    const a = Animated.timing(v, { toValue: 1, duration: 360, delay: delay * 1000, easing: Easing.bezier(0.05, 0.7, 0.1, 1), useNativeDriver: native });
+    a.start();
+    return () => a.stop();
+  }, [v, delay]);
+  // 기본은 화면 전체를 덮는 빈 판: 안의 절대 좌표가 화면 좌표 그대로다
+  return (
+    <Animated.View pointerEvents="box-none" style={[style ?? { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }, { opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+      {children}
+    </Animated.View>
+  );
 }
 
 /** 가로 한 줄 (가운데, 간격 8) */

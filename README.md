@@ -12,7 +12,7 @@
 
 앱과 웹은 같은 코드(`mobile/`, Expo)로 만듭니다.
 
-지금 저장소에는 기초 설정과 보호자 인증·어르신 기기 연결 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
+지금 저장소에는 기초 설정과 보호자 인증, 어르신 기기 연결, 복용 현황 조회, 복약 인증 사진 API가 들어 있습니다. 나머지 API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
 
 
 - **배포:** Render ([render.yaml](render.yaml))
@@ -35,16 +35,27 @@
 │   │   ├── core/
 │   │   │   ├── config.py   # 환경 변수 (DATABASE_URL, Supabase, CORS, 시간대)
 │   │   │   ├── database.py # engine, SessionLocal, Base, get_db
-│   │   │   └── clock.py    # now_local() - 서비스 시간대 기준 현재 시각
-│   │   ├── enums.py        # Slot, DoseStatus, VerifyResult, AlarmMode, MealTiming
-│   │   ├── models.py       # DB 테이블 13개
+│   │   │   ├── clock.py    # now_local() - 서비스 시간대 기준 현재 시각
+│   │   │   └── envelope.py # {"success", "data" | "error"} 응답 형식 (라우터별로 선택)
+│   │   ├── enums.py        # Slot, DoseStatus, VerifyResult, AppearanceStatus, AlarmMode, MealTiming
+│   │   ├── models.py       # DB 테이블 14개
 │   │   ├── security.py     # 비밀번호 해시, JWT, 토큰 해시
 │   │   ├── seed.py         # 시연용 데이터
+│   │   ├── services/
+│   │   │   ├── expo_push.py       # Expo 푸시 전송
+│   │   │   ├── gemini.py          # Gemini 호출 (이미지 → JSON)
+│   │   │   ├── dose_photo.py      # 인증 사진 분석 지시문·응답 형식
+│   │   │   ├── pill_appearance.py # 식약처 색·모양 정규화, 알약 비교 규칙
+│   │   │   └── photo_storage.py   # 인증 사진 저장 (Supabase / 로컬)
 │   │   └── routers/
-│   │       ├── alarms.py   # 어르신별·회차별 알림 방식 설정
-│   │       ├── auth.py     # 보호자 가입·로그인·토큰·탈퇴
-│   │       ├── patients.py # 어르신 등록·기기 연결·기기 인증
-│   │       └── health.py   # GET /api/v1/health
+│   │       ├── alarms.py        # 어르신별·회차별 알림 방식 설정
+│   │       ├── auth.py          # 보호자 가입·로그인·토큰·탈퇴
+│   │       ├── patients.py      # 어르신 등록·기기 연결·기기 인증
+│   │       ├── notifications.py # 보호자 푸시 토큰·15분 무응답 알림
+│   │       ├── guardian_notifications.py # 약 소진 보호자 알림 (내부 호출)
+│   │       ├── dose_status.py # GET /api/v1/patients/{patient_id}/status
+│   │       ├── verifications.py # 복약 인증 사진 판정
+│   │       └── health.py        # GET /api/v1/health
 │   └── tests/            # SQLite로 smoke 및 인증 전체 흐름 테스트
 └── mobile/                 # React Native (Expo) - 안드로이드 앱 + 웹
     ├── app.json            # 웹은 SPA(output: single)로 빌드
@@ -67,6 +78,9 @@
             ├── api.ts      # 공용 API 요청 함수 (get/post/patch/postForm)
             ├── storage.ts  # 토큰 저장 (앱: SecureStore, 웹: localStorage)
             ├── platform.ts # isWeb 등 플랫폼 분기
+            ├── medicationNotifications.ts # 예정·5·10·15분 로컬 알림
+            ├── notificationEscalation.ts  # 15분 무응답 서버 전송·재시도
+            ├── pushRegistration.ts        # 보호자 Expo Push 토큰 등록
             ├── nav.ts      # 화면 id 로 이동 (go / swap / back)
             └── mock.ts     # 서버가 붙기 전까지 쓰는 예시 값
 ```
@@ -145,7 +159,10 @@ npm install
 | | `TZ` | `Asia/Seoul` |
 | | `SUPABASE_URL` / `SUPABASE_SERVICE_ROLE_KEY` / `SUPABASE_BUCKET` | 2번 값 / `dose-photos` |
 | | `GEMINI_API_KEY` / `MFDS_SERVICE_KEY` / `JWT_SECRET` | 각 담당자가 발급한 값 (`JWT_SECRET`은 긴 무작위 문자열) |
+| | `GEMINI_MODEL` | 비워 두면 `gemini-3.5-flash-lite` (`gemini-2.5-flash`는 새 키에서 사용 불가) |
 | | `CRON_SECRET` | 긴 무작위 문자열 (cron-job.org 에도 같은 값 입력) |
+| | `INTERNAL_TOKEN` | 약 소진 알림을 호출하는 내부 시스템의 Bearer 토큰 |
+| | `EXPO_ACCESS_TOKEN` | Expo Push 보안을 활성화한 경우의 액세스 토큰 |
 | medi-care-web | `EXPO_PUBLIC_API_URL` | API 주소, 예: `https://medi-care-api.onrender.com` |
 
 웹은 API와 주소가 다르므로 **웹 정적 사이트 환경 변수에 API 주소를 넣고, API의 `CORS_ORIGINS`에 웹 주소를 넣어야** 웹에서 API를 부를 수 있습니다.
@@ -157,13 +174,25 @@ API 서비스는 `region: singapore`로 만들어집니다 (만든 뒤에는 바
 ## 주기 작업 · 알림
 
 - **주기 작업:** 외부 크론(cron-job.org)이 `POST /api/v1/internal/tick`을 `X-Cron-Secret` 헤더와 함께 10분마다 호출합니다 (담당: 안민규).
-  엔드포인트는 헤더 값이 `CRON_SECRET`과 같은지 확인하도록 구현합니다. 서버 안에서 도는 스케줄러(APScheduler 등)는 쓰지 않습니다.
-- **복용 시간 알림:** 폰 로컬 알림이라 서버 상태와 무관합니다.
+  헤더 값은 `CRON_SECRET`과 같아야 합니다. 미복용 기준은 `MISSED_AFTER_MINUTES`(기본 60), 소진 알림 기준은 `MEDICATION_LOW_DAYS`(기본 3)입니다.
+- **복용 시간 알림:** 예정 시각과 5·10·15분 뒤 알림은 폰에서 로컬로 예약합니다.
+- **보호자 알림:** 15분 알림 시점에만 어르신 앱이 서버에 무응답을 보고합니다. 앱이 종료되어 즉시 전송하지 못한 경우에는 다음 앱 실행 시 재시도하며, 같은 복용 회차의 보호자 알림은 서버에서 한 번만 생성합니다.
+
+## 복약 인증 (사진)
+
+`POST /api/v1/patients/{patient_id}/dose-slots/{slot_id}/verifications` (multipart `image`. 어르신 폰은 `X-Device-Token` + `me`, 보호자 앱은 `Authorization: Bearer {JWT}` + 어르신 ID)
+
+- Gemini는 사진에서 약봉투 시간 표시와 알약 개수·색·모양만 뽑고, 판정(`OK` `RETAKE` `WRONG_TIME` `COUNT_MISMATCH` `ALREADY_TAKEN`)은 서버가 합니다. 판정 순서는 [routers/verifications.py](backend/app/routers/verifications.py), 색·모양 비교 규칙은 [services/pill_appearance.py](backend/app/services/pill_appearance.py) 맨 위 설명에 있습니다.
+- 색·모양 대조는 판정을 바꾸지 않고 OK일 때 `appearance_check`에 경고로만 담습니다. 등록된 약의 색·모양은 `drug_info.pill_json`(식약처 낱알식별 원본)의 `DRUG_SHAPE`, `COLOR_CLASS1/2`에서 읽고, 이 정보가 없으면 `UNKNOWN`입니다.
+- 사진 처리가 끝나면 판정과 관계없이 200이고, 에러는 `{"code", "message"}` 형식입니다. 오늘 회차만 인증할 수 있습니다.
+- `ALREADY_TAKEN` `WRONG_TIME` `COUNT_MISMATCH`이면 시도마다 `guardian_alerts`에 `WRONG_DOSE` 알림(`dose_log_id` 포함)을 남기고, 응답 직후 보호자 기기에 푸시를 보냅니다.
+- `RETAKE`를 뺀 시도는 사진과 결과를 `dose_logs`에 남깁니다. 사진은 Supabase 설정이 있으면 Supabase Storage에(응답의 `photo_url`은 10분짜리 서명 URL), 없으면 `UPLOAD_DIR`에 저장합니다(`photo_url`은 `null`).
 
 ## DB 테이블
 
 DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들어집니다.
 `create_all`은 **이미 있는 테이블을 바꾸지 않으므로**, 컬럼을 바꾼 뒤에는 Neon dev 브랜치에서 해당 테이블을 지우거나 브랜치를 초기화(Reset from parent)한 뒤 다시 실행합니다.
+`guardian_alerts`의 주기 작업용 컬럼과 인덱스는 PostgreSQL에서 앱 시작 시 기존 기록을 유지한 채 추가합니다.
 
 | 테이블 | 설명 | 주요 컬럼 |
 | --- | --- | --- |
@@ -175,11 +204,15 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | `pair_attempts` | IP별 기기 연결 시도 | `client_ip`, `attempted_at` |
 | `alarm_settings` | 어르신별·회차별 알람 방식 | PK(`patient_id`, `slot`), `mode` 기본 `POPUP` |
 | `push_tokens` | 보호자 기기의 Expo 푸시 토큰 | `guardian_id` → guardians, `expo_token` UNIQUE |
+| `guardian_notifications` | 처방별 약 소진 알림 | `prescription_id` UNIQUE, `depletion_date`, `status` |
+| `guardian_alerts` | 보호자 알림 기록 | `patient_id`, `type`, `dose_slot_id` 또는 `prescription_id`, `dedupe_key` UNIQUE, `push_sent_at` |
 | `drug_info` | 식약처 의약품 정보 캐시 | PK `item_seq`(품목기준코드), `normalized_name` INDEX, `dur_json`, `pill_json` |
 | `prescriptions` | 처방 1건 | `patient_id`, `start_date`, `days`, `image_path`(NULL 가능), `ai_json` |
 | `prescription_drugs` | 처방에 포함된 약 1종 | `item_seq`(NULL 가능) → drug_info, `count_per_dose`, `slots`(JSON 배열), `meal_timing` 기본 `AFTER` |
 | `dose_slots` | 날짜별 복용 회차 1건 | UNIQUE(`prescription_id`, `slot_date`, `slot`), INDEX(`patient_id`, `slot_date`), `expected_count`, `status` 기본 `PENDING` |
 | `dose_logs` | 복용 인증 사진 1건과 판정 | `dose_slot_id` → dose_slots, `photo_path`, `ai_json`, `result` |
+| `dur_checks` | DUR 의약품 주의사항 검사 1건 | `patient_id` → patients, `prescription_ids`·`check_types`(JSON 배열), `check_status`, `warnings_json`(식약처 원문 + 쉬운 설명), `checked_at` |
+| `guardian_alerts` | 보호자 알림 내역 | `MISSED` `WELFARE_CHECK` `MEDICATION_LOW` `DOSE_NO_RESPONSE`만 UNIQUE(`dose_slot_id`, `type`) (부분 인덱스), `dose_log_id`(WRONG_DOSE 시도) → dose_logs, `push_sent_at`, `push_error` |
 
 - 열거형 ([app/enums.py](backend/app/enums.py)) 값은 대문자 문자열로 저장됩니다 (DB 타입은 VARCHAR, PostgreSQL ENUM 타입 미사용 → 값 추가 시 ALTER 불필요).
 - `*_json`, `slots` 컬럼은 JSONB입니다.
@@ -188,8 +221,10 @@ DB는 PostgreSQL(Neon)이고, 테이블은 앱 시작 시 `create_all`로 만들
 | --- | --- |
 | `Slot` | `MORNING` `LUNCH` `DINNER` `BEDTIME` |
 | `DoseStatus` | `PENDING` `DONE` `MISSED` `WRONG` |
-| `VerifyResult` | `OK` `WRONG_TIME` `ALREADY_TAKEN` `COUNT_MISMATCH` `RETAKE` |
+| `VerifyResult` | `OK` `WRONG_TIME` `ALREADY_TAKEN` `COUNT_MISMATCH` `APPEARANCE_MISMATCH` `RETAKE` |
 | `AlarmMode` | `POPUP` `FULLSCREEN` |
+| `GuardianAlertType` | `DOSE_NO_RESPONSE` `WRONG_DOSE` |
+| `GuardianAlertType` | `DOSE_NO_RESPONSE` `MISSED` `WELFARE_CHECK` `MEDICATION_LOW` |
 | `MealTiming` | `BEFORE` `AFTER` `ANY` |
 
 시간은 tz 정보 없이 서비스 시간대(Asia/Seoul) 기준으로 저장합니다. 현재 시각은 `datetime.now()` 대신 `app.core.clock.now_local()`을 씁니다.

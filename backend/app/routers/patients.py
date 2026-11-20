@@ -23,6 +23,23 @@ class PairRequest(BaseModel):
     code: str = Field(pattern=r"^\d{6}$")
 
 
+def get_device_patient(
+    x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
+    db: Session = Depends(get_db),
+) -> Patient:
+    """X-Device-Token으로 현재 어르신을 확인하는 공용 dependency."""
+
+    if not x_device_token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "기기 토큰이 필요합니다.")
+
+    patient = db.scalar(
+        select(Patient).where(Patient.device_token == token_hash(x_device_token))
+    )
+    if patient is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "등록되지 않은 기기입니다.")
+    return patient
+
+
 @router.post("/patients", status_code=status.HTTP_201_CREATED)
 def create_patient(
     data: PatientRequest,
@@ -118,18 +135,8 @@ def pair_device(data: PairRequest, request: Request, db: Session = Depends(get_d
 
 @router.get("/patients/me")
 def patient_me(
-    x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
-    db: Session = Depends(get_db),
+    patient: Patient = Depends(get_device_patient),
 ):
-    if not x_device_token:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "기기 토큰이 필요합니다.")
-
-    patient = db.scalar(
-        select(Patient).where(Patient.device_token == token_hash(x_device_token))
-    )
-    if patient is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "등록되지 않은 기기입니다.")
-
     return {
         "patient_id": patient.id,
         "name": patient.name,

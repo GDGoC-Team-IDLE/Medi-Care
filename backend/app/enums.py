@@ -28,7 +28,17 @@ class VerifyResult(StrEnum):
     WRONG_TIME = "WRONG_TIME"  # 복용 시간이 아님
     ALREADY_TAKEN = "ALREADY_TAKEN"  # 이미 복용한 회차
     COUNT_MISMATCH = "COUNT_MISMATCH"  # 알약 개수 불일치
+    APPEARANCE_MISMATCH = "APPEARANCE_MISMATCH"  # 알약 색·모양 불일치 (예전 기록용. 지금은 OK + appearance_check 경고)
     RETAKE = "RETAKE"  # 사진 재촬영 필요
+
+
+class AppearanceStatus(StrEnum):
+    """복용 인증 응답의 알약 색·모양 비교 결과 (DB 에는 저장하지 않음)"""
+
+    MATCH = "MATCH"  # 등록된 약과 색·모양이 모두 맞음
+    MISMATCH = "MISMATCH"  # 빠진 약이 있거나 다른 모양의 알약이 있음
+    COUNT_ONLY = "COUNT_ONLY"  # 색·모양으로 약을 구별할 수 없어 개수만 확인함
+    UNKNOWN = "UNKNOWN"  # 낱알 정보가 없는 약이 있거나 사진의 색·모양이 애매해 확인하지 못함
 
 
 class AlarmMode(StrEnum):
@@ -36,6 +46,20 @@ class AlarmMode(StrEnum):
 
     POPUP = "POPUP"
     FULLSCREEN = "FULLSCREEN"
+
+
+class GuardianAlertType(StrEnum):
+    """보호자에게 전송하는 알림 종류"""
+
+    # MISSED(예정 시각 + 60분)와 구분되는 단계적 알림의 15분 무응답 이벤트입니다.
+    DOSE_NO_RESPONSE = "DOSE_NO_RESPONSE"
+    # 복약 인증 결과가 ALREADY_TAKEN / WRONG_TIME / COUNT_MISMATCH 일 때 인증 API 가 바로 보냅니다.
+
+    WRONG_DOSE = "WRONG_DOSE"
+    MISSED = "MISSED"
+    WELFARE_CHECK = "WELFARE_CHECK"
+    MEDICATION_LOW = "MEDICATION_LOW"
+
 
 
 class MealTiming(StrEnum):

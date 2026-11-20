@@ -9,6 +9,7 @@ EXPECTED_TABLES = {
     "patients",
     "alarm_settings",
     "push_tokens",
+    "guardian_notifications",
     "drug_info",
     "prescriptions",
     "prescription_drugs",
@@ -18,6 +19,8 @@ EXPECTED_TABLES = {
     "revoked_access_tokens",
     "pairing_codes",
     "pair_attempts",
+    "guardian_alerts",
+    "dur_checks",
 }
 
 

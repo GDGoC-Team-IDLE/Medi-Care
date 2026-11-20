@@ -1,5 +1,6 @@
 from functools import lru_cache
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from sqlalchemy.engine import URL, make_url
 
@@ -48,9 +49,23 @@ class Settings(BaseSettings):
     # 기본값은 expo start --web 개발 서버. Render 에서는 웹 주소(https://medi-care-web.onrender.com)를 넣습니다.
     cors_origins: str = "http://localhost:8081"
 
+    # ── Gemini (복약 인증 사진 분석 · 보호자 리포트 요약) ──
+    gemini_api_key: str = ""
+    # 모델 이름은 https://ai.google.dev/gemini-api/docs/models 에서 확인합니다.
+    # gemini-2.5-flash 는 새 키에서 404 입니다. 인식이 부족하면 gemini-3.8-flash (약 5배 비쌈).
+    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_timeout_seconds: float = 30
+    mfds_service_key: str = ""
+
+    mfds_service_key: str = ""  # 공공데이터포털 낱알식별 정보 API 인증키
+
     # ── 주기 작업 ──
     # 외부 크론(cron-job.org)이 POST /api/v1/internal/tick 을 부를 때 X-Cron-Secret 헤더로 보내는 값
     cron_secret: str = ""
+    missed_after_minutes: int = Field(default=60, ge=0)
+    medication_low_days: int = Field(default=3, ge=0)
+    internal_token: str = ""  # 보호자 알림 API 호출용 Bearer 토큰
+    expo_access_token: str = ""  # Expo Push 보안이 활성화된 프로젝트에서 사용
 
     # ── 인증 ──
     # 운영에서는 반드시 긴 무작위 문자열을 사용합니다.

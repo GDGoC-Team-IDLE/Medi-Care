@@ -18,15 +18,19 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.clock import now_local
 from app.core.database import Base
-from app.enums import AlarmMode, DoseStatus, MealTiming, Slot, VerifyResult
+from app.enums import AlarmMode, DoseStatus, GuardianAlertType, MealTiming, Slot, VerifyResult
 
 JSONColumn = JSON().with_variant(JSONB(), "postgresql")
+
+# 회차·종류당 한 번만 만드는 알림 (크론 알림 + 15분 무응답). WRONG_DOSE 는 시도마다 행을 남깁니다.
+CRON_ALERT_WHERE = "type IN ('MISSED', 'WELFARE_CHECK', 'MEDICATION_LOW', 'DOSE_NO_RESPONSE')"
 
 
 def _enum(enum_cls: type[enum.Enum]) -> Enum:
@@ -188,6 +192,27 @@ class Prescription(Base):
     dose_slots: Mapped[list["DoseSlot"]] = relationship(
         back_populates="prescription", cascade="all, delete-orphan"
     )
+    guardian_notification: Mapped["GuardianNotification | None"] = relationship(
+        back_populates="prescription", cascade="all, delete-orphan", uselist=False
+    )
+
+
+class GuardianNotification(Base):
+    """처방별 약 소진 알림과 푸시 요청 상태."""
+
+    __tablename__ = "guardian_notifications"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    prescription_id: Mapped[int] = mapped_column(
+        ForeignKey("prescriptions.id", ondelete="CASCADE"), unique=True
+    )
+    depletion_date: Mapped[date] = mapped_column(Date)
+    days_remaining: Mapped[int] = mapped_column(Integer)
+    detected_at: Mapped[datetime] = mapped_column(DateTime)
+    status: Mapped[str] = mapped_column(String(10), default="QUEUED", server_default="QUEUED")
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+    prescription: Mapped[Prescription] = relationship(back_populates="guardian_notification")
 
 
 class PrescriptionDrug(Base):
@@ -200,6 +225,7 @@ class PrescriptionDrug(Base):
     item_seq: Mapped[str | None] = mapped_column(ForeignKey("drug_info.item_seq"))  # 매칭 실패 시 NULL
     drug_name: Mapped[str] = mapped_column(String(255))  # 처방전에 적힌 이름
     count_per_dose: Mapped[int] = mapped_column(Integer)  # 1회 복용 개수
+    days: Mapped[int | None] = mapped_column(Integer)  # 기존 약은 처방 일수를 사용합니다.
     slots: Mapped[list[str]] = mapped_column(JSONColumn)  # 복용 회차 목록, 예: ["MORNING", "DINNER"]
     meal_timing: Mapped[MealTiming] = mapped_column(
         _enum(MealTiming), default=MealTiming.AFTER, server_default=MealTiming.AFTER.value
@@ -207,6 +233,9 @@ class PrescriptionDrug(Base):
 
     prescription: Mapped[Prescription] = relationship(back_populates="drugs")
     drug_info: Mapped[DrugInfo | None] = relationship()
+
+    def is_scheduled_on(self, slot_date: date) -> bool:
+        return self.days is None or 0 <= (slot_date - self.prescription.start_date).days < self.days
 
 
 class DoseSlot(Base):
@@ -248,3 +277,68 @@ class DoseLog(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
     dose_slot: Mapped[DoseSlot] = relationship(back_populates="logs")
+
+
+class GuardianAlert(Base):
+    """보호자 알림 내역. 크론 알림·15분 무응답은 같은 회차·종류에 한 번만, WRONG_DOSE 는 인증 시도마다 만듭니다."""
+
+    __tablename__ = "guardian_alerts"
+    __table_args__ = (
+        Index(
+            "uq_guardian_alert_cron_slot_type",
+            "dose_slot_id",
+            "type",
+            unique=True,
+            postgresql_where=text(CRON_ALERT_WHERE),
+            sqlite_where=text(CRON_ALERT_WHERE),
+        ),
+        Index("uq_guardian_alert_dedupe_key", "dedupe_key", unique=True),
+    )
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guardian_id: Mapped[int] = mapped_column(
+        ForeignKey("guardians.id", ondelete="CASCADE"), index=True
+    )
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("patients.id", ondelete="CASCADE"), index=True
+    )
+    dose_slot_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dose_slots.id", ondelete="CASCADE"), index=True
+    )
+    # WRONG_DOSE 알림을 만든 인증 시도. 다른 종류는 NULL.
+    dose_log_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dose_logs.id", ondelete="CASCADE"), index=True
+    )
+    prescription_id: Mapped[int | None] = mapped_column(
+        ForeignKey("prescriptions.id", ondelete="CASCADE")
+    )
+    dedupe_key: Mapped[str | None] = mapped_column(String(64))
+    type: Mapped[GuardianAlertType] = mapped_column(_enum(GuardianAlertType))
+    title: Mapped[str] = mapped_column(String(100))
+    body: Mapped[str] = mapped_column(String(500))
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local, index=True)
+    push_sent_at: Mapped[datetime | None] = mapped_column(DateTime)
+    push_attempted_at: Mapped[datetime | None] = mapped_column(DateTime)
+    push_error: Mapped[str | None] = mapped_column(String(500))
+
+    guardian: Mapped[Guardian] = relationship()
+    patient: Mapped[Patient] = relationship()
+    dose_slot: Mapped[DoseSlot | None] = relationship()
+
+
+class DurCheck(Base):
+    """DUR 의약품 주의사항 검사 1건. 식약처 원문과 쉬운 설명을 함께 저장합니다."""
+
+    __tablename__ = "dur_checks"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    patient_id: Mapped[int] = mapped_column(
+        ForeignKey("patients.id", ondelete="CASCADE"), index=True
+    )
+    prescription_ids: Mapped[list[int]] = mapped_column(JSONColumn)  # 검사한 처방전 ID 목록
+    check_types: Mapped[list[str]] = mapped_column(JSONColumn)  # 요청한 DUR 검사 유형
+    check_status: Mapped[str] = mapped_column(String(20))
+    medication_count: Mapped[int] = mapped_column(Integer)
+    # [{warning_id, warning_type, medications, original_message, easy_message, source}]
+    warnings_json: Mapped[Any] = mapped_column(JSONColumn)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
