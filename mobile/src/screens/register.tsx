@@ -1,6 +1,7 @@
 // 약봉투 등록 (찍기 → 읽기 → 회차 확인 → 주의 → 일정 시작) · 고치기 (회차 → 약 목록 → 약 하나 · 일수)
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ScrollView, View } from 'react-native';
+import { useLocalSearchParams } from 'expo-router';
 import { back, go, swap } from '@/lib/nav';
 import { api, ApiError, appendFile } from '@/lib/api';
 import { C, R } from '@/constants/theme';
@@ -50,9 +51,18 @@ const READ: ScanSpec = {
 
 export type Slot = 'MORNING' | 'LUNCH' | 'DINNER' | 'BEDTIME';
 
+type MealTiming = 'BEFORE' | 'AFTER' | 'ANY';
+type PreviewDrug = {
+  name: string;
+  count_per_dose: number;
+  slots: Slot[];
+  meal_timing: MealTiming;
+  days: number;
+};
+
 /** POST /prescriptions/analyze 응답 (쓰는 칸만) */
 interface Preview {
-  drugs: { name: string; count_per_dose: number; slots: Slot[]; meal_timing: string; days: number }[];
+  drugs: PreviewDrug[];
   needs_retake: boolean;
 }
 
@@ -89,8 +99,20 @@ function saveFail(x: unknown): string {
   return 'p15t-slow?retry=p23-review'; // 503 MFDS_UNAVAILABLE 등
 }
 
-/** 마지막 분석 결과. p12 가 받고 p23 이 보여 준다 (없으면 예시) */
+/** p12 에서 받은 등록 전 처방. 돌아갈 때 이미 열린 요약·목록도 변경을 받는다. */
 let preview: Preview | null = null;
+const previewListeners = new Set<() => void>();
+const getPreview = () => preview;
+
+function subscribePreview(listener: () => void) {
+  previewListeners.add(listener);
+  return () => { previewListeners.delete(listener); };
+}
+
+function setPreview(next: Preview | null) {
+  preview = next;
+  previewListeners.forEach((listener) => listener());
+}
 
 /** 장면(밑줄·칸 채우기)이 끝나는 시각. 응답이 빨리 와도 여기까지는 보여 준다 */
 const SCENE_MS = 5900;
@@ -99,7 +121,7 @@ const SLOW_MS = 8000;
 
 async function analyze(uri: string): Promise<Preview> {
   const form = new FormData();
-  await appendFile(form, 'image', { uri, name: 'envelope.jpg', type: 'image/jpeg' });
+  await appendFile(form, 'image', { uri, name: 'envelope.jpg' });
   return api.postForm<Preview>('/prescriptions/analyze', form);
 }
 
@@ -118,6 +140,7 @@ function failRoute(x: unknown): string {
  */
 export function Reading() {
   useEffect(() => {
+    setPreview(null);
     const uri = lastShot();
     if (!uri) {
       const t = setTimeout(() => swap('p23-review'), SCENE_MS);
@@ -135,7 +158,7 @@ export function Reading() {
       (p) => {
         if (done) return;
         if (p.needs_retake || !p.drugs.length) return to('p13-noread');
-        preview = p;
+        setPreview(p);
         setTimeout(() => to('p23-review'), Math.max(0, SCENE_MS - (Date.now() - started)));
       },
       (x) => to(failRoute(x)),
@@ -190,7 +213,8 @@ function summary(p: Preview | null): { days: number; rows: [Slot, number][] } {
 
 /** p23 회차 요약. 행 → 그 회차의 약 목록, 제목 → 복용 일수 */
 export function Review() {
-  const { days, rows } = summary(preview);
+  const draft = useSyncExternalStore(subscribePreview, getPreview, getPreview);
+  const { days, rows } = summary(draft);
   const four = rows.length > 3; // 자기 전까지 네 줄이면 버튼에 닿지 않게 좁힌다
   const said = rows.map(([s, n]) => `${SLOT_ROW[s].name} ${SAY_COUNT[n] ?? n} 알`).join(', ');
   const busy = useRef(false); // 두 번 눌러도 한 번만 저장
@@ -218,7 +242,9 @@ export function Review() {
         <Icon name="chevron-right" />
       </Tap>
       {rows.map(([s, n], i) => (
-        <SlotRow key={s} i={i} top={(four ? 204 : 228) + i * (four ? 100 : 120)} pouch={SLOT_ROW[s].pouch} name={SLOT_ROW[s].name} count={`${n}알`} onPress={() => go('p23b-slot')} />
+        <SlotRow key={s} i={i} top={(four ? 204 : 228) + i * (four ? 100 : 120)} pouch={SLOT_ROW[s].pouch} name={SLOT_ROW[s].name} count={`${n}알`} onPress={() => {
+          if (!busy.current) go(draft ? `p23b-slot?slot=${s}` : 'p23b-slot');
+        }} />
       ))}
       <Btn two label={saving ? '확인하는 중' : '맞아요'} onPress={() => void ok()} />
       <Sub label="잘 모르겠어요" onPress={() => go('p22-unsure')} />
@@ -360,46 +386,68 @@ export function Start() {
   );
 }
 
-function DrugRow({ top, pill, name, onPress, i = 0 }: { top: number; pill: IllName; name: string; onPress: () => void; i?: number }) {
+const MEAL_LABEL: Record<MealTiming, string> = { BEFORE: '식전', AFTER: '식후', ANY: '식사와 무관' };
+const EXAMPLE_DRUGS: PreviewDrug[] = [
+  { name: '다이아벡스정', count_per_dose: 1, slots: ['MORNING', 'LUNCH'], meal_timing: 'AFTER', days: 7 },
+  { name: '스티렌정', count_per_dose: 1, slots: ['MORNING', 'LUNCH'], meal_timing: 'AFTER', days: 7 },
+];
+const DRUG_ILLUSTRATIONS: IllName[] = ['pill-capsule', 'pill-round-blue'];
+
+function DrugRow({ drug, onPress, i }: { drug: PreviewDrug; onPress?: () => void; i: number }) {
   return (
-    <Tap onPress={onPress} style={[abs({ left: 28, right: 28, top, height: 96 }), { flexDirection: 'row', alignItems: 'center', gap: 16 }]}>
+    <Tap onPress={onPress} disabled={!onPress} style={{ minHeight: 96, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
       <Pop delay={250 + i * 90}>
-        <Ill name={pill} />
+        <Ill name={DRUG_ILLUSTRATIONS[i % DRUG_ILLUSTRATIONS.length]} />
       </Pop>
       <View style={{ flex: 1 }}>
-        <T k>{name}</T>
-        <T c={C.ink2}>식후</T>
+        <T k>{drug.name}</T>
+        <T c={C.ink2}>{MEAL_LABEL[drug.meal_timing]}</T>
       </View>
       <T s={32} k>
-        1알
+        {drug.count_per_dose}알
       </T>
-      <Icon name="chevron-right" style={CHEV} />
+      {onPress && <Icon name="chevron-right" style={CHEV} />}
     </Tap>
   );
 }
 
 /** p23b 그 회차에 든 약 목록 */
 export function SlotDrugs() {
+  const { slot } = useLocalSearchParams<{ slot?: string }>();
+  const draft = useSyncExternalStore(subscribePreview, getPreview, getPreview);
+  const selectedSlot = (Object.keys(SLOT_ROW) as Slot[]).find((value) => value === slot);
+  const current = selectedSlot ? draft : null;
+  const name = SLOT_ROW[selectedSlot ?? 'LUNCH'].name;
+  const drugs = (current?.drugs ?? EXAMPLE_DRUGS)
+    .map((drug, index) => ({ drug, index }))
+    .filter(({ drug }) => !selectedSlot || drug.slots.includes(selectedSlot));
+  const total = drugs.reduce((sum, { drug }) => sum + drug.count_per_dose, 0);
+  const list = drugs.map(({ drug }) => `${drug.name} ${SAY_COUNT[drug.count_per_dose] ?? drug.count_per_dose} 알`).join(', ');
+  const canEdit = !current || saved?.from !== current;
   return (
     <Phone>
       <Back />
-      <Say text="점심 약은 두 알이에요. 다이아벡스정 한 알, 스티렌정 한 알." />
+      <Say text={`${name} 약은 ${SAY_COUNT[total] ?? total} 알이에요. ${list}`} />
       <T h left={28} top={132}>
-        점심 2알
+        {name} {total}알
       </T>
-      <DrugRow top={228} pill="pill-capsule" name="다이아벡스정" onPress={() => go('p25-drug')} />
-      <DrugRow i={1} top={348} pill="pill-round-blue" name="스티렌정" onPress={() => go('p25-drug')} />
+      <ScrollView style={abs({ left: 28, right: 28, top: 228, height: 440 })} contentContainerStyle={{ gap: 24, paddingRight: 12 }}>
+        {drugs.map(({ drug, index }, i) => (
+          <DrugRow key={index} drug={drug} i={i} onPress={canEdit ? () => go(current ? `p25-drug?drugIndex=${index}` : 'p25-drug') : undefined} />
+        ))}
+      </ScrollView>
       <Btn label="확인" onPress={back} />
     </Phone>
   );
 }
 
 /** 고르는 칸: 켜짐 = 글자 검정 + 아래 4px 막대 */
-function Toggle({ on, icon, label, row, onPress }: { on: boolean; icon: IconName; label: string; row?: boolean; onPress: () => void }) {
+function Toggle({ on, icon, label, row, disabled, onPress }: { on: boolean; icon: IconName; label: string; row?: boolean; disabled?: boolean; onPress: () => void }) {
   const c = on ? C.ink : C.plan;
   return (
     <Tap
-      accessibilityState={{ selected: on }}
+      accessibilityState={{ selected: on, disabled }}
+      disabled={disabled}
       onPress={onPress}
       style={{
         flex: 1,
@@ -441,28 +489,54 @@ function Stepper({ value, onChange, min = 1, max = 99, unit }: { value: number; 
 
 /** p25 약 한 가지 고치기: 복용 시간대 · 식전/식후 · 1회 개수 */
 export function Drug() {
-  const [slots, setSlots] = useState([true, true, false]);
-  const [after, setAfter] = useState(true);
-  const [count, setCount] = useState(1);
-  const flip = (i: number) => setSlots(slots.map((v, j) => (j === i ? !v : v)));
+  const { drugIndex } = useLocalSearchParams<{ drugIndex?: string }>();
+  const draft = useSyncExternalStore(subscribePreview, getPreview, getPreview);
+  const index = drugIndex !== undefined && /^\d+$/.test(drugIndex) ? Number(drugIndex) : -1;
+  const drug = draft?.drugs[index];
+  const save = (changes: Pick<PreviewDrug, 'count_per_dose' | 'slots' | 'meal_timing'>) => {
+    if (draft && drug && draft === preview && saved?.from !== draft) {
+      const drugs = draft.drugs.slice();
+      drugs[index] = { ...drug, ...changes };
+      setPreview({ ...draft, drugs });
+    }
+    back();
+  };
+  return <DrugEditor key={drugIndex ?? 'example'} drug={drug ?? EXAMPLE_DRUGS[1]} onSave={save} />;
+}
+
+const SLOT_ICON: Record<Slot, IconName> = { MORNING: 'sunrise', LUNCH: 'sun', DINNER: 'moon', BEDTIME: 'moon' };
+const MEAL_ICON: Record<MealTiming, IconName> = { BEFORE: 'c-meal-before', AFTER: 'c-meal-after', ANY: 'clock' };
+
+function DrugEditor({ drug, onSave }: {
+  drug: PreviewDrug;
+  onSave: (changes: Pick<PreviewDrug, 'count_per_dose' | 'slots' | 'meal_timing'>) => void;
+}) {
+  const [slots, setSlots] = useState(drug.slots);
+  const [meal, setMeal] = useState(drug.meal_timing);
+  const [count, setCount] = useState(drug.count_per_dose);
   return (
     <Phone>
       <Back />
-      <Say text="스티렌정. 드시는 때와 개수를 고칠 수 있어요." />
-      <T h left={28} top={132}>
-        스티렌정
+      <Say text={`${drug.name}. 드시는 때와 개수를 고칠 수 있어요.`} />
+      <T h left={28} right={28} top={132} fit={334}>
+        {drug.name}
       </T>
       <View style={[abs({ left: 28, right: 28, top: 260, height: 96 }), { flexDirection: 'row', gap: 8 }]}>
-        <Toggle on={slots[0]} icon="sunrise" label="아침" onPress={() => flip(0)} />
-        <Toggle on={slots[1]} icon="sun" label="점심" onPress={() => flip(1)} />
-        <Toggle on={slots[2]} icon="moon" label="저녁" onPress={() => flip(2)} />
+        {(Object.keys(SLOT_ROW) as Slot[]).map((slot) => {
+          const on = slots.includes(slot);
+          return <Toggle key={slot} on={on} icon={SLOT_ICON[slot]} label={SLOT_ROW[slot].name}
+            disabled={on && slots.length === 1}
+            onPress={() => setSlots(on ? slots.filter((value) => value !== slot) : [...slots, slot])} />;
+        })}
       </View>
       <View style={[abs({ left: 28, right: 28, top: 380, height: 60 }), { flexDirection: 'row', gap: 8 }]}>
-        <Toggle row on={!after} icon="c-meal-before" label="식전" onPress={() => setAfter(false)} />
-        <Toggle row on={after} icon="c-meal-after" label="식후" onPress={() => setAfter(true)} />
+        {(Object.keys(MEAL_LABEL) as MealTiming[]).map((timing) => (
+          <Toggle key={timing} row={timing !== 'ANY'} on={meal === timing} icon={MEAL_ICON[timing]}
+            label={MEAL_LABEL[timing]} onPress={() => setMeal(timing)} />
+        ))}
       </View>
-      <Stepper value={count} onChange={setCount} max={9} unit="알" />
-      <Btn label="저장하기" onPress={back} />
+      <Stepper value={count} onChange={setCount} max={10} unit="알" />
+      <Btn label="저장하기" onPress={() => onSave({ count_per_dose: count, slots, meal_timing: meal })} />
     </Phone>
   );
 }
