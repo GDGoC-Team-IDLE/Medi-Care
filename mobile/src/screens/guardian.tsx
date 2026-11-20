@@ -1,8 +1,10 @@
 // 보호자: 잠금 알림 → 사건 → 현황 · 달력 · 화면 가득 알림
-import { useState, type ReactNode } from 'react';
+import { useLocalSearchParams } from 'expo-router';
+import { useEffect, useState, type ReactNode } from 'react';
 import { Image, View } from 'react-native';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
 import { go, swap } from '@/lib/nav';
+import { api, ApiError } from '@/lib/api';
 import { PATIENT, TODAY, call } from '@/lib/mock';
 import { C, R } from '@/constants/theme';
 import { PNG, type PngFile } from '@/constants/img.gen';
@@ -288,11 +290,12 @@ export function WellEvent() {
 
 /* ── 현황 ── */
 function Head() {
-  const btn = { width: 48, height: 48, alignItems: 'center', justifyContent: 'center' } as const;
+  // 아이콘 셋(달력 · 화면 가득 알림 · 마이페이지)이 들어가도 날짜가 꺾이지 않게 단추 폭 44, 날짜는 한 줄
+  const btn = { width: 44, height: 48, alignItems: 'center', justifyContent: 'center' } as const;
   return (
-    <View style={[abs({ left: 28, right: 16, top: 62, height: 48 }), { flexDirection: 'row', alignItems: 'center', gap: 16 }]}>
+    <View style={[abs({ left: 28, right: 12, top: 62, height: 48 }), { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
       <T h>{PATIENT}</T>
-      <T s={16} c={C.ink2} style={{ flex: 1 }}>
+      <T s={16} fit={96} c={C.ink2} style={{ flex: 1, marginLeft: 8 }}>
         {TODAY}
       </T>
       <Tap accessibilityLabel="달력" onPress={() => go('c08-calendar')} style={btn}>
@@ -300,6 +303,9 @@ function Head() {
       </Tap>
       <Tap accessibilityLabel="화면 가득 알림" onPress={() => go('g16-alarmset')} style={btn}>
         <Icon name="settings" size={24} />
+      </Tap>
+      <Tap accessibilityLabel="마이페이지" onPress={() => go('g20-mypage')} style={btn}>
+        <Icon name="user" size={24} />
       </Tap>
     </View>
   );
@@ -423,16 +429,73 @@ function Diamond({ n, size }: { n: number; size: number }) {
   );
 }
 
-/** c08 11월 달력. 1일 = 일요일. 하루에 모양 하나 = 그날 가장 나쁜 상태(오복용 > 미복용 > 예정 > 완료). 마름모 안 숫자 = 못 먹은 알 수 */
+/** 달력 한 칸: 그날 가장 나쁜 상태 · 못 먹은 알 수(목업 예시만) · 약 없음 */
+type Cell = { status: Status; n?: number; nomed?: boolean };
+const MOCK_CELLS: Record<number, Cell> = Object.fromEntries(Object.entries(DAYS).map(([d, [s, n]]) => [d, { status: worst(s), n, nomed: s.includes('n') }]));
+
+/** GET /patients/{id}/calendar 의 하루 */
+type CalDay = { date: string; total: number; done: number; missed: number; wrong: number; pending: number; day_status: 'ALL_DONE' | 'PARTIAL' | 'NONE_DONE' | 'UPCOMING' };
+/** 서버 하루 → 칸. 오복용 > 미복용 > 예정 > 완료. 서버는 회차 수만 주므로 마름모 안 숫자(알 수)는 없다 */
+function cellOf(d: CalDay): Cell | undefined {
+  if (!d.total) return undefined;
+  if (d.wrong) return { status: 'wrong' };
+  if (d.missed) return { status: 'missed' };
+  if (d.pending || d.day_status === 'UPCOMING') return { status: 'planned' };
+  return { status: 'done' };
+}
+
+/**
+ * c08 달력. 1일의 요일부터 채운다. 하루에 모양 하나 = 그날 가장 나쁜 상태(오복용 > 미복용 > 예정 > 완료). 마름모 안 숫자 = 못 먹은 알 수.
+ * 마이페이지 → 어르신 고르기(g22)에서 오면 ?patient_id·name 으로 그 어르신의 이번 달(GET /patients/{id}/calendar). 아니면 목업 예시(2026년 11월).
+ */
 export function Calendar() {
+  const q = useLocalSearchParams<{ patient_id?: string; name?: string }>();
+  const pid = q.patient_id && /^\d+$/.test(q.patient_id) ? q.patient_id : null;
+  const [now] = useState(() => (pid ? new Date() : new Date(2026, 10, 20)));
+  const y = now.getFullYear();
+  const m = now.getMonth();
+  const [cells, setCells] = useState<Record<number, Cell> | null>(pid ? null : MOCK_CELLS);
+  const [err, setErr] = useState<string>();
+  useEffect(() => {
+    if (!pid) return;
+    let live = true;
+    const month = `${y}-${String(m + 1).padStart(2, '0')}`;
+    api
+      .get<{ days: CalDay[] }>(`/patients/${pid}/calendar`, { month })
+      .then((r) => {
+        if (!live) return;
+        const out: Record<number, Cell> = {};
+        for (const d of r.days) {
+          const c = cellOf(d);
+          if (c) out[Number(d.date.slice(8, 10))] = c;
+        }
+        setCells(out);
+      })
+      .catch((x) => {
+        if (!live) return;
+        const st = x instanceof ApiError ? x.status : -1;
+        setErr(st === 401 ? '보호자 로그인부터 해 주세요' : st === 0 ? '서버에 연결하지 못했어요' : '달력을 못 불러왔어요');
+        setCells({});
+      });
+    return () => {
+      live = false;
+    };
+  }, [pid, y, m]);
+  const lead = new Date(y, m, 1).getDay();
+  const count = new Date(y, m + 1, 0).getDate();
+  const rows = Math.ceil((lead + count) / 7);
+  const h = rows > 5 ? 64 : 72; // 여섯 줄인 달도 범례(672) 위에 들어가게
+  const today = now.getDate();
+  const title = `${m + 1}월`;
   return (
     <Phone>
       <Back />
-      <T h left={28} top={132}>
-        11월
+      {/* 이름(최대 10자)이 길면 한 줄에 맞춰 글자만 줄인다 */}
+      <T h fit={334} left={28} top={132}>
+        {pid && q.name ? `${q.name} · ${title}` : title}
       </T>
-      <T s={20} c={C.ink2} left={28} right={28} top={186}>
-        날짜를 누르면 그날 사진을 봐요
+      <T s={20} k={!!err} c={err ? C.wrong : C.ink2} left={28} right={28} top={186}>
+        {err ?? (cells ? '날짜를 누르면 그날 사진을 봐요' : '불러오는 중이에요')}
       </T>
       <View style={[abs({ left: 28, right: 28, top: 252 }), { flexDirection: 'row' }]}>
         {[...'일월화수목금토'].map((d) => (
@@ -442,22 +505,24 @@ export function Calendar() {
         ))}
       </View>
       <View style={[abs({ left: 28, right: 28, top: 280 }), { flexDirection: 'row', flexWrap: 'wrap' }]}>
-        {Array.from({ length: 30 }, (_, i) => i + 1).map((day) => {
-          const d = DAYS[day];
-          const s = d?.[0];
-          const n = d?.[1];
-          const w = s ? worst(s) : undefined;
-          const today = day === 20;
-          const label = s ? ' ' + (w === 'missed' && s.includes('n') ? '약 없음' : LEGEND[w!]) + (n ? `, 안 드신 알약 ${n}알` : '') : '';
+        {Array.from({ length: lead }, (_, i) => (
+          <View key={`b${i}`} style={{ width: `${100 / 7}%`, height: h }} />
+        ))}
+        {Array.from({ length: count }, (_, i) => i + 1).map((day) => {
+          const c = cells?.[day];
+          const w = c?.status;
+          const n = c?.n;
+          const isToday = day === today;
+          const label = w ? ' ' + (w === 'missed' && c?.nomed ? '약 없음' : LEGEND[w]) + (n ? `, 안 드신 알약 ${n}알` : '') : '';
           return (
             <Tap
               key={day}
-              disabled={!s}
-              accessibilityLabel={`11월 ${day}일${label}`}
+              disabled={!w}
+              accessibilityLabel={`${m + 1}월 ${day}일${label}`}
               onPress={() => go('c09-day')}
-              style={{ width: `${100 / 7}%`, height: 72, alignItems: 'center', paddingTop: 8, gap: 8, borderRadius: R.s, borderWidth: today ? 2 : 0, borderColor: C.ink }}
+              style={{ width: `${100 / 7}%`, height: h, alignItems: 'center', paddingTop: 8, gap: 8, borderRadius: R.s, borderWidth: isToday ? 2 : 0, borderColor: C.ink }}
             >
-              <T s={16} lh={1} k={today} c={s ? C.ink : C.plan}>
+              <T s={16} lh={1} k={isToday} c={w ? C.ink : C.plan}>
                 {day}
               </T>
               {w === 'missed' && n ? (
@@ -474,9 +539,10 @@ export function Calendar() {
       <View style={[abs({ left: 20, right: 20, top: 672 }), { flexDirection: 'row', justifyContent: 'space-between' }]}>
         {(['done', 'missed', 'wrong', 'planned'] as const).map((k) => (
           <View key={k} style={{ flexDirection: 'row', alignItems: 'center', gap: 4 }}>
-            {k === 'missed' ? <Diamond n={2} size={26} /> : <StatusMark s={k} size={20} />}
+            {/* 서버 달력은 회차 수만 주므로 알 수 마름모는 목업 예시에서만 */}
+            {k === 'missed' && !pid ? <Diamond n={2} size={26} /> : <StatusMark s={k} size={20} />}
             <T s={16} c={C.ink2}>
-              {k === 'missed' ? '안 드신 알약' : LEGEND[k]}
+              {k === 'missed' && !pid ? '안 드신 알약' : LEGEND[k]}
             </T>
           </View>
         ))}

@@ -215,8 +215,16 @@ export function Device() {
   );
 }
 
-/** c03 에서 만든 어르신. g04 가 이 어르신의 연결 숫자를 받는다 */
+/** c03 에서 만든 어르신(또는 마이페이지 g22 에서 고른 어르신). g04 가 이 어르신의 연결 숫자를 받는다 */
 let newPatient: number | null = null;
+/** g04 에 보일 어르신 이름 · ‹ 로 돌아갈 곳(마이페이지에서 왔으면 그 화면으로) */
+let codeFor: { name?: string; backTo?: 'back' } = {};
+/** 마이페이지 g22 에서 연결 전 어르신의 연결 숫자를 열 때. 숫자는 g04 가 새로 받는다(5분) */
+export function openCode(patientId: number, name: string) {
+  newPatient = patientId;
+  codeFor = { name, backTo: 'back' };
+  return 'g04-code';
+}
 
 /** c03 어르신 이름 (보호자 폰). POST /patients 로 어르신을 만들고 g04 연결 숫자로 */
 export function Patient() {
@@ -231,6 +239,7 @@ export function Patient() {
     try {
       pid.current ??= (await api.post<{ patient_id: number }>('/patients', { name: name.trim() })).patient_id;
       newPatient = pid.current;
+      codeFor = { name: name.trim() };
       go('g04-code');
     } catch (x) {
       setErr(x instanceof ApiError && x.status === 401 ? '보호자 로그인부터 해 주세요' : '만들지 못했어요. 다시 눌러 주세요');
@@ -323,9 +332,10 @@ export function Code() {
     };
   }, []);
   const shown = code ? `${code.slice(0, 3)} ${code.slice(3)}` : '··· ···';
+  const [who] = useState(() => codeFor);
   return (
     <Phone>
-      <Back onPress={() => swap('g08-empty')} />
+      <Back onPress={() => (who.backTo === 'back' ? back() : swap('g08-empty'))} />
       <T h left={28} top={132}>
         연결 숫자
       </T>
@@ -335,6 +345,19 @@ export function Code() {
       <T s={56} num left={28} top={260} style={{ letterSpacing: 0.04 * 56 }}>
         {shown}
       </T>
+      {code && (
+        <>
+          {/* 이름은 최대 10자: 한 줄에 맞춰 글자만 줄인다 */}
+          {who.name && (
+            <T s={20} k fit={334} left={28} right={28} top={348}>
+              {who.name}
+            </T>
+          )}
+          <T s={20} c={C.ink2} left={28} right={28} top={who.name ? 380 : 348}>
+            5분 안에 넣어 주세요
+          </T>
+        </>
+      )}
       <Tap
         disabled={!code}
         onPress={() => Share.share({ message: `약 알림 연결 숫자: ${shown}` }).catch(() => {})}
