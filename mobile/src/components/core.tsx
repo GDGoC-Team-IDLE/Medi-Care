@@ -74,21 +74,28 @@ export function Phone({
       style={{ flex: 1, backgroundColor: bg, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' }}
     >
       <StatusBar style={fg === C.ink ? 'dark' : 'light'} />
-      <Animated.View
-        style={{
-          width: W,
-          height: H,
-          opacity: enter,
-          transform: [{ scale: s }, { translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 0 : 12, 0] }) }],
-        }}
-      >
-        <Fg.Provider value={fg}>
-          <BackSlot.Provider value={setHasBack}>
-            {children}
-            {__DEV__ && !native && !hasBack && <DevList />}
-          </BackSlot.Provider>
-        </Fg.Provider>
-      </Animated.View>
+      {/*
+        목업 390×844 좌표를 기기 크기로 늘린다. 기기(네이티브)는 transform scale 로도 선명하지만,
+        웹은 transform 으로 늘린 층을 비트맵으로 늘려 누르거나 움직일 때 글자·그림이 흐려진다.
+        그래서 웹은 CSS zoom 으로 늘려 처음부터 그 크기로 다시 그리게 한다.
+      */}
+      <View style={(native ? { width: W, height: H, transform: [{ scale: s }] } : { width: W, height: H, zoom: s }) as ViewStyle}>
+        <Animated.View
+          style={{
+            width: W,
+            height: H,
+            opacity: enter,
+            transform: [{ translateY: enter.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 0 : 12, 0] }) }],
+          }}
+        >
+          <Fg.Provider value={fg}>
+            <BackSlot.Provider value={setHasBack}>
+              {children}
+              {__DEV__ && !native && !hasBack && <DevList />}
+            </BackSlot.Provider>
+          </Fg.Provider>
+        </Animated.View>
+      </View>
     </View>
   );
 }
@@ -134,6 +141,19 @@ export function T({ s, k, c, num, h, center, lh, style, children, label, ...pos 
   const size = s ?? (h ? 40 : 24);
   const tight = num || h;
   const positioned = center || Object.keys(pos).length > 0;
+  // 목업의 줄 높이(숫자 1 · 제목 1.15)는 글자 모양보다 낮아서, 기기·웹뷰가 줄 상자에 맞춰 자르면 숫자 위아래가 잘린다.
+  // 그래서 실제 줄 상자는 글자가 다 들어가는 높이(1.35 이상)로 키우고, 늘어난 만큼 위아래로 반씩 당겨 목업 자리를 그대로 지킨다.
+  const box = Math.round(size * (lh ?? (num ? 1 : h ? 1.15 : 1.25)));
+  const line = Math.max(box, Math.ceil(size * 1.35));
+  const pull = (line - box) / 2;
+  const shift: TextStyle =
+    pull === 0
+      ? {}
+      : pos.top != null
+        ? { top: pos.top - pull }
+        : pos.bottom != null
+          ? { bottom: pos.bottom - pull }
+          : { marginVertical: -pull };
   return (
     <Text
       accessibilityLabel={label}
@@ -143,13 +163,15 @@ export function T({ s, k, c, num, h, center, lh, style, children, label, ...pos 
           fontSize: size,
           fontWeight: k || tight ? '800' : '600',
           color: c ?? fg,
-          lineHeight: Math.round(size * (lh ?? (num ? 1 : h ? 1.15 : 1.25))),
+          lineHeight: line,
+          textAlignVertical: 'center',
           letterSpacing: num ? -0.02 * size : h ? -0.01 * size : 0,
           includeFontPadding: false,
           fontVariant: ['tabular-nums'],
         },
         positioned && { position: 'absolute', ...pos },
         center && { left: 0, right: 0, textAlign: 'center' },
+        shift,
         style,
       ]}
     >
@@ -182,7 +204,10 @@ export function StatusMark({ s, size = 48, style }: { s: Status; size?: number; 
 }
 
 const APressable = Animated.createAnimatedComponent(Pressable);
-/** 누를 수 있는 곳. 누르면 살짝 들어가며 흐려지고, 떼면 돌아온다. */
+/**
+ * 누를 수 있는 곳. 누르는 동안 옅어지고(투명도만), 떼면 돌아온다.
+ * 크기를 줄이는 눌림(scale)은 웹에서 그 층을 비트맵으로 늘려 글자·그림이 흐려져서 쓰지 않는다.
+ */
 export function Tap({
   style,
   children,
@@ -205,13 +230,7 @@ export function Tap({
         to(0);
         onPressOut?.(e);
       }}
-      style={[
-        style,
-        {
-          opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, 0.7] }),
-          transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [1, card ? 0.985 : 0.97] }) }],
-        },
-      ]}
+      style={[style, { opacity: v.interpolate({ inputRange: [0, 1], outputRange: [1, card ? 0.85 : 0.7] }) }]}
     >
       {children}
     </APressable>
