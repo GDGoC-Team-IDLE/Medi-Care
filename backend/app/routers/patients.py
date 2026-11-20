@@ -116,7 +116,7 @@ def pair_device(data: PairRequest, request: Request, db: Session = Depends(get_d
     }
 
 
-@router.get("/patient/me")
+@router.get("/patients/me")
 def patient_me(
     x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
     db: Session = Depends(get_db),
