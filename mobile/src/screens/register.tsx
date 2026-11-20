@@ -52,18 +52,42 @@ const READ: ScanSpec = {
 export type Slot = 'MORNING' | 'LUNCH' | 'DINNER' | 'BEDTIME';
 
 type MealTiming = 'BEFORE' | 'AFTER' | 'ANY';
-type PreviewDrug = {
-  name: string;
+type SlotDose = {
   count_per_dose: number;
-  slots: Slot[];
   meal_timing: MealTiming;
+};
+type PreviewDrug = SlotDose & {
+  name: string;
+  slots: Slot[];
   days: number;
 };
+type DraftDrug = PreviewDrug & { slotDoses?: Partial<Record<Slot, SlotDose>> };
 
-/** POST /prescriptions/analyze 응답 (쓰는 칸만) */
+/** 분석 결과와 등록 전에 바꾼 회차별 복용 정보 */
 interface Preview {
-  drugs: PreviewDrug[];
+  drugs: DraftDrug[];
   needs_retake: boolean;
+}
+
+function doseForSlot(drug: DraftDrug, slot?: Slot): SlotDose {
+  return (slot && drug.slotDoses?.[slot]) || drug;
+}
+
+/** 등록 API는 항목 하나에 공통 수량을 받으므로 수량과 식사 시점이 같은 회차만 묶는다. */
+function drugsForSave(draft: Preview): PreviewDrug[] {
+  return draft.drugs.flatMap((drug) => {
+    const groups: PreviewDrug[] = [];
+    for (const slot of drug.slots) {
+      const { count_per_dose, meal_timing } = doseForSlot(drug, slot);
+      const group = groups.find((candidate) => candidate.count_per_dose === count_per_dose && candidate.meal_timing === meal_timing);
+      if (group) {
+        group.slots.push(slot);
+      } else {
+        groups.push({ name: drug.name, days: drug.days, slots: [slot], count_per_dose, meal_timing });
+      }
+    }
+    return groups;
+  });
 }
 
 /** POST /patients/me/prescriptions 응답 (쓰는 칸만) */
@@ -86,7 +110,7 @@ let dur: Dur | null = null;
 
 /** p23 '맞아요': 처방 저장 → 주의사항 조회. 주의할 게 있으면 p03, 없으면 p28 */
 async function confirmPreview(p: Preview): Promise<string> {
-  if (saved?.from !== p) saved = { from: p, res: await api.post<Saved>('/patients/me/prescriptions', { drugs: p.drugs }) };
+  if (saved?.from !== p) saved = { from: p, res: await api.post<Saved>('/patients/me/prescriptions', { drugs: drugsForSave(p) }) };
   dur = await api.get<Dur>('/patients/me/dur-warnings');
   return dur.warnings.length || dur.unidentified_drugs.length ? 'p03-caution' : 'p28-start';
 }
@@ -199,14 +223,16 @@ export const SLOT_ROW: Record<Slot, { name: string; pouch: IllName }> = {
   DINNER: { name: '저녁', pouch: 'pouch-evening' },
   BEDTIME: { name: '자기 전', pouch: 'pouch-blank' },
 };
+const SLOTS = Object.keys(SLOT_ROW) as Slot[];
+const findSlot = (value?: string) => SLOTS.find((slot) => slot === value);
 /** 읽어 줄 때 알 수는 고유어로 (두 알, 세 알) */
 export const SAY_COUNT = ['영', '한', '두', '세', '네', '다섯', '여섯', '일곱', '여덟', '아홉', '열'];
 
 /** 분석 결과 → 복용 일수 · 회차별 알 수. 결과가 없으면 예시(7일, 아침 2 · 점심 2 · 저녁 3) */
 function summary(p: Preview | null): { days: number; rows: [Slot, number][] } {
   if (!p) return { days: 7, rows: [['MORNING', 2], ['LUNCH', 2], ['DINNER', 3]] };
-  const rows = (Object.keys(SLOT_ROW) as Slot[])
-    .map((s): [Slot, number] => [s, p.drugs.filter((d) => d.slots.includes(s)).reduce((n, d) => n + d.count_per_dose, 0)])
+  const rows = SLOTS
+    .map((s): [Slot, number] => [s, p.drugs.filter((d) => d.slots.includes(s)).reduce((n, d) => n + doseForSlot(d, s).count_per_dose, 0)])
     .filter(([, n]) => n > 0);
   return { days: Math.max(...p.drugs.map((d) => d.days)), rows };
 }
@@ -393,18 +419,18 @@ const EXAMPLE_DRUGS: PreviewDrug[] = [
 ];
 const DRUG_ILLUSTRATIONS: IllName[] = ['pill-capsule', 'pill-round-blue'];
 
-function DrugRow({ drug, onPress, i }: { drug: PreviewDrug; onPress?: () => void; i: number }) {
+function DrugRow({ name, dose, onPress, i }: { name: string; dose: SlotDose; onPress?: () => void; i: number }) {
   return (
     <Tap onPress={onPress} disabled={!onPress} style={{ minHeight: 96, flexDirection: 'row', alignItems: 'center', gap: 16 }}>
       <Pop delay={250 + i * 90}>
         <Ill name={DRUG_ILLUSTRATIONS[i % DRUG_ILLUSTRATIONS.length]} />
       </Pop>
       <View style={{ flex: 1 }}>
-        <T k>{drug.name}</T>
-        <T c={C.ink2}>{MEAL_LABEL[drug.meal_timing]}</T>
+        <T k>{name}</T>
+        <T c={C.ink2}>{MEAL_LABEL[dose.meal_timing]}</T>
       </View>
       <T s={32} k>
-        {drug.count_per_dose}알
+        {dose.count_per_dose}알
       </T>
       {onPress && <Icon name="chevron-right" style={CHEV} />}
     </Tap>
@@ -415,14 +441,15 @@ function DrugRow({ drug, onPress, i }: { drug: PreviewDrug; onPress?: () => void
 export function SlotDrugs() {
   const { slot } = useLocalSearchParams<{ slot?: string }>();
   const draft = useSyncExternalStore(subscribePreview, getPreview, getPreview);
-  const selectedSlot = (Object.keys(SLOT_ROW) as Slot[]).find((value) => value === slot);
+  const selectedSlot = findSlot(slot);
   const current = selectedSlot ? draft : null;
   const name = SLOT_ROW[selectedSlot ?? 'LUNCH'].name;
   const drugs = (current?.drugs ?? EXAMPLE_DRUGS)
     .map((drug, index) => ({ drug, index }))
-    .filter(({ drug }) => !selectedSlot || drug.slots.includes(selectedSlot));
-  const total = drugs.reduce((sum, { drug }) => sum + drug.count_per_dose, 0);
-  const list = drugs.map(({ drug }) => `${drug.name} ${SAY_COUNT[drug.count_per_dose] ?? drug.count_per_dose} 알`).join(', ');
+    .filter(({ drug }) => !selectedSlot || drug.slots.includes(selectedSlot))
+    .map(({ drug, index }) => ({ name: drug.name, index, dose: doseForSlot(drug, selectedSlot) }));
+  const total = drugs.reduce((sum, { dose }) => sum + dose.count_per_dose, 0);
+  const list = drugs.map(({ name: drugName, dose }) => `${drugName} ${SAY_COUNT[dose.count_per_dose] ?? dose.count_per_dose} 알`).join(', ');
   const canEdit = !current || saved?.from !== current;
   return (
     <Phone>
@@ -432,8 +459,9 @@ export function SlotDrugs() {
         {name} {total}알
       </T>
       <ScrollView style={abs({ left: 28, right: 28, top: 228, height: 440 })} contentContainerStyle={{ gap: 24, paddingRight: 12 }}>
-        {drugs.map(({ drug, index }, i) => (
-          <DrugRow key={index} drug={drug} i={i} onPress={canEdit ? () => go(current ? `p25-drug?drugIndex=${index}` : 'p25-drug') : undefined} />
+        {drugs.map(({ name: drugName, index, dose }, i) => (
+          <DrugRow key={index} name={drugName} dose={dose} i={i}
+            onPress={canEdit ? () => go(current ? `p25-drug?slot=${selectedSlot}&drugIndex=${index}` : 'p25-drug') : undefined} />
         ))}
       </ScrollView>
       <Btn label="확인" onPress={back} />
@@ -489,43 +517,53 @@ function Stepper({ value, onChange, min = 1, max = 99, unit }: { value: number; 
 
 /** p25 약 한 가지 고치기: 복용 시간대 · 식전/식후 · 1회 개수 */
 export function Drug() {
-  const { drugIndex } = useLocalSearchParams<{ drugIndex?: string }>();
+  const { drugIndex, slot } = useLocalSearchParams<{ drugIndex?: string; slot?: string }>();
   const draft = useSyncExternalStore(subscribePreview, getPreview, getPreview);
   const index = drugIndex !== undefined && /^\d+$/.test(drugIndex) ? Number(drugIndex) : -1;
   const drug = draft?.drugs[index];
-  const save = (changes: Pick<PreviewDrug, 'count_per_dose' | 'slots' | 'meal_timing'>) => {
-    if (draft && drug && draft === preview && saved?.from !== draft) {
+  const selectedSlot = findSlot(slot);
+  const editingSlot = selectedSlot && drug?.slots.includes(selectedSlot) ? selectedSlot : undefined;
+  const save = (slots: Slot[], dose: SlotDose) => {
+    if (draft && drug && editingSlot && draft === preview && saved?.from !== draft) {
+      const slotDoses = { ...drug.slotDoses, [editingSlot]: dose };
+      for (const previous of drug.slots) {
+        if (!slots.includes(previous)) delete slotDoses[previous];
+      }
       const drugs = draft.drugs.slice();
-      drugs[index] = { ...drug, ...changes };
+      drugs[index] = { ...drug, slots, slotDoses };
       setPreview({ ...draft, drugs });
     }
     back();
   };
-  return <DrugEditor key={drugIndex ?? 'example'} drug={drug ?? EXAMPLE_DRUGS[1]} onSave={save} />;
+  return <DrugEditor key={`${editingSlot}-${index}`} drug={drug ?? EXAMPLE_DRUGS[1]} editingSlot={editingSlot} onSave={save} />;
 }
 
 const SLOT_ICON: Record<Slot, IconName> = { MORNING: 'sunrise', LUNCH: 'sun', DINNER: 'moon', BEDTIME: 'moon' };
 const MEAL_ICON: Record<MealTiming, IconName> = { BEFORE: 'c-meal-before', AFTER: 'c-meal-after', ANY: 'clock' };
 
-function DrugEditor({ drug, onSave }: {
-  drug: PreviewDrug;
-  onSave: (changes: Pick<PreviewDrug, 'count_per_dose' | 'slots' | 'meal_timing'>) => void;
+function DrugEditor({ drug, editingSlot, onSave }: {
+  drug: DraftDrug;
+  editingSlot?: Slot;
+  onSave: (slots: Slot[], dose: SlotDose) => void;
 }) {
+  const dose = doseForSlot(drug, editingSlot);
   const [slots, setSlots] = useState(drug.slots);
-  const [meal, setMeal] = useState(drug.meal_timing);
-  const [count, setCount] = useState(drug.count_per_dose);
+  const [meal, setMeal] = useState(dose.meal_timing);
+  const [count, setCount] = useState(dose.count_per_dose);
+  const slotName = editingSlot && SLOT_ROW[editingSlot].name;
   return (
     <Phone>
       <Back />
-      <Say text={`${drug.name}. 드시는 때와 개수를 고칠 수 있어요.`} />
+      <Say text={`${drug.name}. ${slotName ? `${slotName}에 드시는 개수를 고칠 수 있어요.` : '드시는 때와 개수를 고칠 수 있어요.'}`} />
       <T h left={28} right={28} top={132} fit={334}>
         {drug.name}
       </T>
+      {slotName && <T k left={28} top={205}>{slotName} 회차 편집</T>}
       <View style={[abs({ left: 28, right: 28, top: 260, height: 96 }), { flexDirection: 'row', gap: 8 }]}>
-        {(Object.keys(SLOT_ROW) as Slot[]).map((slot) => {
+        {SLOTS.map((slot) => {
           const on = slots.includes(slot);
           return <Toggle key={slot} on={on} icon={SLOT_ICON[slot]} label={SLOT_ROW[slot].name}
-            disabled={on && slots.length === 1}
+            disabled={slot === editingSlot || (on && slots.length === 1)}
             onPress={() => setSlots(on ? slots.filter((value) => value !== slot) : [...slots, slot])} />;
         })}
       </View>
@@ -536,7 +574,7 @@ function DrugEditor({ drug, onSave }: {
         ))}
       </View>
       <Stepper value={count} onChange={setCount} max={10} unit="알" />
-      <Btn label="저장하기" onPress={() => onSave({ count_per_dose: count, slots, meal_timing: meal })} />
+      <Btn label="저장하기" onPress={() => onSave(slots, { count_per_dose: count, meal_timing: meal })} />
     </Phone>
   );
 }
