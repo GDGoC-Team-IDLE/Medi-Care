@@ -21,6 +21,21 @@ function loginError(x: unknown): { email?: string; pw?: string } {
   return { pw: '잠시 뒤 다시 해 주세요' };
 }
 
+type PatientRow = { patient_id: number; paired: boolean };
+
+/**
+ * 보호자 로그인 뒤 갈 곳. 어르신 없음 → c03 이름 / 어르신 폰이 아직 연결 안 됨 → g04 연결 숫자 /
+ * 복용 중인 처방 있음 → g01 현황 / 없음 → g08 약봉투 찍기 (어르신이 여러 명이면 첫 어르신 기준)
+ */
+async function guardianHome(): Promise<string> {
+  const { patients } = await api.get<{ patients: PatientRow[] }>('/patients');
+  if (!patients.length) return 'c03-patient';
+  if (!patients.some((p) => p.paired)) return 'g04-code';
+  const first = patients.find((p) => p.paired) ?? patients[0];
+  const { prescriptions } = await api.get<{ prescriptions: unknown[] }>(`/patients/${first.patient_id}/prescriptions`);
+  return prescriptions.length ? 'g01-today' : 'g08-empty';
+}
+
 /** c01 보호자 로그인. POST /api/v1/auth/login (가입은 c01s) */
 export function Login() {
   const [email, setEmail] = useState('');
@@ -37,9 +52,7 @@ export function Login() {
     try {
       const t = await api.post<{ access_token: string; refresh_token: string }>('/auth/login', { user_email, password: pw });
       await Promise.all([saveToken('guardian', t.access_token), saveToken('guardianRefresh', t.refresh_token)]);
-      // 어르신이 아직 없으면 이름부터(c03 → g04 연결 숫자), 있으면 보호자 현황으로
-      const { patients } = await api.get<{ patients: unknown[] }>('/patients');
-      go(patients.length ? 'g08-empty' : 'c03-patient');
+      go(await guardianHome());
     } catch (x) {
       setErr(loginError(x));
     } finally {
@@ -310,27 +323,43 @@ export function Notify() {
 
 /**
  * g04 연결 숫자 (보호자 폰). 열 때마다 POST /patients/{id}/pairing-code 로 새 숫자(5분)를 받는다.
- * 어르신: c03 에서 만든 어르신, 없으면 연결 안 된 첫 어르신. 목업에 다음 버튼이 없어 ‹ 를 누르면 g08
+ * 어르신: c03 에서 만든 어르신, 없으면 연결 안 된 첫 어르신. 어르신 폰이 숫자를 넣으면 g08(약봉투 찍기)로 넘어간다.
+ * 목업에 다음 버튼이 없어 ‹ 를 누르면 g08
  */
 export function Code() {
   const [code, setCode] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [waitFor, setWaitFor] = useState<number | null>(null); // 연결을 기다리는 어르신
   useEffect(() => {
     let live = true;
     (async () => {
-      let id = newPatient;
-      if (id == null) {
-        const { patients } = await api.get<{ patients: { patient_id: number; paired: boolean }[] }>('/patients');
-        id = (patients.find((p) => !p.paired) ?? patients[0])?.patient_id ?? null;
-      }
-      if (id == null) return swap('c03-patient'); // 어르신이 없으면 이름부터
-      const { pairing_code } = await api.post<{ pairing_code: string }>(`/patients/${id}/pairing-code`);
-      if (live) setCode(pairing_code);
+      const { patients } = await api.get<{ patients: PatientRow[] }>('/patients');
+      const row = patients.find((p) => p.patient_id === newPatient) ?? patients.find((p) => !p.paired) ?? patients[0];
+      if (!row) return swap('c03-patient'); // 어르신이 없으면 이름부터
+      const { pairing_code } = await api.post<{ pairing_code: string }>(`/patients/${row.patient_id}/pairing-code`);
+      if (!live) return;
+      setCode(pairing_code);
+      if (!row.paired) setWaitFor(row.patient_id); // 이미 연결된 어르신(폰 바꾸기)은 기다리지 않는다
     })().catch(() => live && setFailed(true));
     return () => {
       live = false;
     };
   }, []);
+  // 3초마다 확인해 어르신 폰이 연결되면(paired) 다음 단계로
+  useEffect(() => {
+    if (waitFor == null) return;
+    const t = setInterval(() => {
+      api
+        .get<{ patients: PatientRow[] }>('/patients')
+        .then(({ patients }) => {
+          if (!patients.find((p) => p.patient_id === waitFor)?.paired) return;
+          clearInterval(t);
+          swap('g08-empty');
+        })
+        .catch(() => {});
+    }, 3000);
+    return () => clearInterval(t);
+  }, [waitFor]);
   const shown = code ? `${code.slice(0, 3)} ${code.slice(3)}` : '··· ···';
   const [who] = useState(() => codeFor);
   return (
