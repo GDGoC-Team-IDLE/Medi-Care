@@ -11,7 +11,7 @@
 ```
 
 앱과 웹은 같은 코드(`mobile/`, Expo)로 만듭니다.
-지금 저장소에는 **기초 설정만** 들어 있습니다. API와 화면은 팀원 각자 명세를 맞춘 뒤 구현합니다.
+백엔드는 **기초 설정만** 들어 있고, `mobile/`에는 서버 없이 눌러 볼 수 있는 화면 목업(예시 값)이 들어 있습니다. API는 팀원 각자 명세를 맞춘 뒤 구현합니다.
 
 - **배포:** Render ([render.yaml](render.yaml))
 - **로컬 개발:** `docker-compose.yml`과 `nginx/`는 로컬용입니다. DB는 로컬에 띄우지 않고 Neon의 dev 브랜치에 붙습니다.
@@ -48,20 +48,21 @@
     └── src/
         ├── app/            # 화면 (파일 하나 = 화면 하나, 경로 = 주소)
         │   ├── _layout.tsx         # 최상위 Stack
-        │   ├── index.tsx           # /          시작 화면 (복용자/보호자 선택)
-        │   ├── patient/            # /patient/… 복용자 화면 (A 담당)
-        │   │   ├── _layout.tsx
-        │   │   └── index.tsx
-        │   └── guardian/           # /guardian/… 보호자 화면 (B 담당)
-        │       ├── _layout.tsx
-        │       └── index.tsx
-        ├── components/     # 공용 컴포넌트
+        │   ├── index.tsx           # /          화면 목록 (개발용 첫 화면)
+        │   ├── patient/            # /patient/… 복용자 화면 (A 담당)  예: p04-today.tsx
+        │   ├── guardian/           # /guardian/… 보호자 화면 (B 담당) 예: g01-today.tsx
+        │   └── common/             # /common/…  양쪽에서 쓰는 화면 (로그인, 기기 연결, 달력)
+        ├── screens/        # 화면 구현 (app/ 의 파일은 여기 컴포넌트를 내보내기만 함)
+        ├── components/     # 공용 컴포넌트 (core · parts · field)
         ├── constants/
-        │   └── theme.ts    # 어르신용 색·글씨·버튼 크기
+        │   ├── theme.ts        # 어르신용 색·글씨·버튼 크기 + 목업 색 토큰 C
+        │   └── assets.gen.ts   # 아이콘·삽화 SVG (자동 생성)
         └── lib/
             ├── api.ts      # 공용 API 요청 함수 (get/post/patch/postForm)
             ├── storage.ts  # 토큰 저장 (앱: SecureStore, 웹: localStorage)
-            └── platform.ts # isWeb 등 플랫폼 분기
+            ├── platform.ts # isWeb 등 플랫폼 분기
+            ├── nav.ts      # 화면 id 로 이동 (go / swap / back)
+            └── mock.ts     # 서버가 붙기 전까지 쓰는 예시 값
 ```
 
 ## 로컬 실행
