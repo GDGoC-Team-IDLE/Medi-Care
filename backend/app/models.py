@@ -18,6 +18,7 @@ from sqlalchemy import (
     Integer,
     String,
     UniqueConstraint,
+    text,
 )
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -27,6 +28,9 @@ from app.core.database import Base
 from app.enums import AlarmMode, DoseStatus, GuardianAlertType, MealTiming, Slot, VerifyResult
 
 JSONColumn = JSON().with_variant(JSONB(), "postgresql")
+
+# 회차·종류당 한 번만 만드는 알림 (크론 알림 + 15분 무응답). WRONG_DOSE 는 시도마다 행을 남깁니다.
+CRON_ALERT_WHERE = "type IN ('MISSED', 'WELFARE_CHECK', 'MEDICATION_LOW', 'DOSE_NO_RESPONSE')"
 
 
 def _enum(enum_cls: type[enum.Enum]) -> Enum:
@@ -272,6 +276,18 @@ class DoseLog(Base):
 
 
 class GuardianAlert(Base):
+    """보호자 알림 내역. 크론 알림·15분 무응답은 같은 회차·종류에 한 번만, WRONG_DOSE 는 인증 시도마다 만듭니다."""
+
+    __tablename__ = "guardian_alerts"
+    __table_args__ = (
+        Index(
+            "uq_guardian_alert_cron_slot_type",
+            "dose_slot_id",
+            "type",
+            unique=True,
+            postgresql_where=text(CRON_ALERT_WHERE),
+            sqlite_where=text(CRON_ALERT_WHERE),
+        ),
     """보호자 알림 내역. 회차 또는 사건별로 중복을 막습니다."""
 
     __tablename__ = "guardian_alerts"
@@ -289,6 +305,10 @@ class GuardianAlert(Base):
     )
     dose_slot_id: Mapped[int | None] = mapped_column(
         ForeignKey("dose_slots.id", ondelete="CASCADE"), index=True
+    )
+    # WRONG_DOSE 알림을 만든 인증 시도. 다른 종류는 NULL.
+    dose_log_id: Mapped[int | None] = mapped_column(
+        ForeignKey("dose_logs.id", ondelete="CASCADE"), index=True
     )
     prescription_id: Mapped[int | None] = mapped_column(
         ForeignKey("prescriptions.id", ondelete="CASCADE")

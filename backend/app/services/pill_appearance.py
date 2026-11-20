@@ -6,7 +6,7 @@
 - 색·모양이 서로 구별되는 약은 약마다 개수를 확인합니다.
   아예 안 보이거나 모자라면 MISSING, 등록되지 않은 색·모양이 보이면 UNEXPECTED.
 - 색·모양이 같은 약끼리는 한 묶음으로 보고 묶음 전체 개수만 확인합니다 (COUNT_ONLY).
-- 식약처 정보가 없는 약은 어떤 모양인지 모르므로, 그 개수만큼은 처음 보는 알약이 있어도 경고하지 않습니다.
+- 식약처 정보가 없는 약은 어떤 모양인지 모르므로, 그 개수만큼은 처음 보는 알약이 있어도 경고하지 않습니다 (UNKNOWN).
 """
 
 import re
@@ -16,7 +16,7 @@ from typing import Any
 
 from app.enums import AppearanceStatus
 
-# 식약처 COLOR_CLASS1/2 값 → 응답에 쓰는 색 이름. 사진 분석도 오른쪽 이름 중에서만 고릅니다.
+# 식약처 COLOR_CLASS1/2 값(응답·사진 분석에 쓰는 이름) → 안내 문구에 쓰는 색 이름.
 MFDS_COLORS = {
     "하양": "흰색",
     "노랑": "노란색",
@@ -35,7 +35,7 @@ MFDS_COLORS = {
     "검정": "검정색",
     "투명": "투명",
 }
-COLORS = tuple(MFDS_COLORS.values())
+COLORS = tuple(MFDS_COLORS)
 
 # 식약처 DRUG_SHAPE 값 그대로. 캡슐은 식약처와 같이 장방형으로 봅니다.
 SHAPES = ("원형", "타원형", "장방형", "반원형", "삼각형", "사각형", "마름모형", "오각형", "육각형", "팔각형", "기타")
@@ -43,10 +43,11 @@ UNKNOWN_SHAPE = "기타"
 
 
 def normalize_color(raw: Any) -> str | None:
+    """식약처 색 이름으로 맞춥니다. '노란색'처럼 문구용 이름이 와도 '노랑'으로 바꿉니다."""
     value = str(raw or "").strip()
     if value in MFDS_COLORS:
-        return MFDS_COLORS[value]
-    return value if value in COLORS else None
+        return value
+    return next((mfds for mfds, name in MFDS_COLORS.items() if name == value), None)
 
 
 def normalize_shape(raw: Any) -> str | None:
@@ -62,6 +63,11 @@ class Appearance:
     @property
     def color(self) -> str:
         return "/".join(self.colors)
+
+    @property
+    def color_name(self) -> str:
+        """안내 문구용 색 이름 (예: 노란색)"""
+        return "/".join(MFDS_COLORS[c] for c in self.colors)
 
 
 def compatible(a: Appearance, b: Appearance) -> bool:
@@ -127,6 +133,7 @@ class PillGap:
     look: Appearance
     count: int  # MISSING: 모자란 알 수 / UNEXPECTED: 보인 알 수
     seen: int = 0  # MISSING: 사진에서 찾은 같은 모양 알 수
+    drugs: tuple[int, ...] = ()  # MISSING: 이 모양으로 등록된 약 ID
 
 
 @dataclass(frozen=True)
@@ -184,7 +191,9 @@ def compare(expected: list[ExpectedPill], detected: list[Appearance], expected_c
         pick = max(exact or candidates, key=lambda g: g.need - g.seen)
         pick.seen += 1
 
-    missing = tuple(PillGap(g.label, g.need - g.seen, g.seen) for g in groups if g.seen < g.need)
+    missing = tuple(
+        PillGap(g.label, g.need - g.seen, g.seen, tuple(sorted(g.drugs))) for g in groups if g.seen < g.need
+    )
     unexpected: tuple[PillGap, ...] = ()
     if len(strangers) > unknown_count:
         unexpected = tuple(PillGap(look, n) for look, n in Counter(strangers).items())
@@ -192,7 +201,7 @@ def compare(expected: list[ExpectedPill], detected: list[Appearance], expected_c
     if missing or unexpected:
         return AppearanceCheck(AppearanceStatus.MISMATCH, missing, unexpected, no_info=unknown_count > 0)
     if unknown_count > 0:
-        return AppearanceCheck(AppearanceStatus.COUNT_ONLY, no_info=True)
+        return AppearanceCheck(AppearanceStatus.UNKNOWN, no_info=True)
     if any(len(g.drugs) > 1 for g in groups):
         return AppearanceCheck(AppearanceStatus.COUNT_ONLY)
     return AppearanceCheck(AppearanceStatus.MATCH)
