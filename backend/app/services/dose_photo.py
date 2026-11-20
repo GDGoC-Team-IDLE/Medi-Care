@@ -93,12 +93,13 @@ class PhotoAnalysis:
 
     @property
     def pills_unclear(self) -> bool:
-        """알약 개수·색·모양을 믿을 수 없는지"""
-        return (
-            self.image_problem != "NONE"
-            or not self.pills
-            or any(not p.certain or p.look is None for p in self.pills)
-        )
+        """알약 개수를 믿을 수 없는지 (→ RETAKE)"""
+        return self.image_problem != "NONE" or not self.pills
+
+    @property
+    def looks_unclear(self) -> bool:
+        """색·모양을 확실히 알아보지 못한 알약이 있는지 (→ 색·모양 대조만 UNKNOWN, 판정은 그대로)"""
+        return any(not p.certain or p.look is None for p in self.pills)
 
     @property
     def looks(self) -> list[Appearance]:
