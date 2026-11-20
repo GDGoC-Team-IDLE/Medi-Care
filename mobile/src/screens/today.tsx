@@ -316,6 +316,51 @@ export function Wait() {
   );
 }
 
+/**
+ * p19-wait-demo 시연용(실제 흐름 아님): p19 예시와 같은 대기 화면 + '다음 시간대로 이동'.
+ * 누르면 점심 뒤 대기에서 저녁 시간(저녁이 '지금', 찍기)으로 바뀌고, 같은 자리 '처음으로'로 되돌린다.
+ * 서버·기기 연결 없이 늘 예시로 그린다. 바뀔 때마다 key 로 다시 그려 들어오는 움직임을 다시 보인다
+ */
+export function WaitDemo() {
+  const [evening, setEvening] = useState(false);
+  const toggle = () => setEvening((v) => !v);
+  if (evening) {
+    return (
+      <Phone key="evening">
+        <Say icon text="저녁 약 드실 시간이에요. 식후 세 알. 드시기 전에 사진을 찍어 주세요." />
+        <Tray slots={['done', 'done', 'plan']} f={2} cur={2} now={0.8235} />
+        <Up delay={0.6}>
+          <T s={84} num center top={360}>
+            저녁
+          </T>
+        </Up>
+        <Pills pills={['pill-capsule', 'pill-round-blue', 'pill-scored']} count="3알" meal="식후" />
+        <Btn up={0.85} two icon="camera" label="찍기" onPress={() => go('p06-shoot')} />
+        <Sub up={0.9} icon="arrow-right" label="처음으로" onPress={toggle} />
+      </Phone>
+    );
+  }
+  return (
+    <Phone key="wait">
+      <Say icon text="점심 약은 드셨어요. 다음은 저녁 식후 세 알이에요." />
+      <Tray slots={['done', 'done', 'plan']} f={2} now={0.62} />
+      <Up delay={0.6}>
+        <T s={32} k c={C.plan} center top={336}>
+          다음
+        </T>
+      </Up>
+      <Up delay={0.7}>
+        <T s={84} num c={C.plan} center top={380}>
+          저녁
+        </T>
+      </Up>
+      <Pills pills={['pill-capsule', 'pill-round-blue', 'pill-scored']} count="3알" meal="식후" />
+      <Btn up={0.85} two kind="idle" label="오늘 먹은 약 보기" onPress={() => go('p27-didtake')} />
+      <Sub up={0.9} icon="arrow-right" label="다음 시간대로 이동" onPress={toggle} />
+    </Phone>
+  );
+}
+
 /** p20 미복용(15분 무응답 → 보호자 알림 뒤). 늦게 찍어 OK 면 완료로 바뀐다 */
 export function Missed() {
   return (

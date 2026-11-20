@@ -82,6 +82,10 @@ export const FLOWS: Flow[] = [
     screens: [s('g01-today', '오늘 현황', G.GToday), s('c08-calendar', '달력', G.Calendar), s('g08-empty', '약 없음', G.GEmpty), s('g16-alarmset', '화면 가득 알림', G.AlarmSet)],
   },
   {
+    name: '시연용',
+    screens: [s('p19-wait-demo', '다음 회차 대기 (시간 이동)', T.WaitDemo)],
+  },
+  {
     name: '마이페이지 (보호자)',
     screens: [s('g20-mypage', '마이페이지', M.MyPage), s('c03-patient', '어르신 등록', A.Patient), s('g04-code', '연결 숫자', A.Code), s('g22-patients', '어르신 고르기', M.Patients), s('c08-calendar', '어르신 달력', G.Calendar)],
   },
