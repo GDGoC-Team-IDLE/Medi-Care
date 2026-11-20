@@ -4,6 +4,7 @@ import {
   AccessibilityInfo,
   Animated,
   Easing,
+  Image,
   Keyboard,
   Platform,
   Pressable,
@@ -19,6 +20,7 @@ import { SvgXml } from 'react-native-svg';
 import { router } from 'expo-router';
 import { StatusBar } from 'expo-status-bar';
 import { ICONS, ILLUST, type IconName, type IllName } from '@/constants/assets.gen';
+import { PNG, SYMBOL_PNG } from '@/constants/img.gen';
 import { C, H, W } from '@/constants/theme';
 
 export type { IconName, IllName };
@@ -115,9 +117,9 @@ type TProps = Pos & {
   k?: boolean;
   /** 색 */
   c?: string;
-  /** 숫자·큰 글자: 800, 자간 -0.03em, 줄 높이 1 */
+  /** 숫자·큰 글자: 800, 자간 -0.02em, 줄 높이 1 */
   num?: boolean;
-  /** 제목: 40/800, 자간 -0.03em, 줄 높이 1.15 */
+  /** 제목: 40/800, 자간 -0.01em, 줄 높이 1.15 */
   h?: boolean;
   /** 가운데 정렬(좌우 0) */
   center?: boolean;
@@ -142,7 +144,7 @@ export function T({ s, k, c, num, h, center, lh, style, children, label, ...pos 
           fontWeight: k || tight ? '800' : '600',
           color: c ?? fg,
           lineHeight: Math.round(size * (lh ?? (num ? 1 : h ? 1.15 : 1.25))),
-          letterSpacing: tight ? -0.03 * size : 0,
+          letterSpacing: num ? -0.02 * size : h ? -0.01 * size : 0,
           includeFontPadding: false,
           fontVariant: ['tabular-nums'],
         },
@@ -166,8 +168,10 @@ export function Icon({ name, size = 32, c, style }: { name: IconName; size?: num
   return <SvgXml xml={xml} width={size} height={size} color={c ?? fg} style={style} />;
 }
 
-/** 삽화 */
+/** 삽화. 6판에서 Blender 로 다듬은 그림(알약·약포·인증 사진)은 PNG, 나머지(상태 모양·빈 알약 자리 등)는 SVG */
 export function Ill({ name, w = 56, h, style }: { name: IllName; w?: number; h?: number; style?: StyleProp<ViewStyle> }) {
+  const png = SYMBOL_PNG[name];
+  if (png) return <Image source={PNG[png[0]]} resizeMode="contain" style={[{ width: w, height: h ?? w }, style as StyleProp<object>]} />;
   return <SvgXml xml={ILLUST[name]} width={w} height={h ?? w} style={style} />;
 }
 
@@ -221,6 +225,103 @@ export function Pop({ delay = 160, style, children }: { delay?: number; style?: 
     Animated.sequence([Animated.delay(delay), Animated.spring(v, { toValue: 1, friction: 6, tension: 140, useNativeDriver: native })]).start();
   }, [v, delay]);
   return <Animated.View style={[style, { opacity: v.interpolate({ inputRange: [0, 0.4], outputRange: [0, 1], extrapolate: 'clamp' }), transform: [{ scale: v.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 1 : 0.6, 1] }) }] }]}>{children}</Animated.View>;
+}
+
+/**
+ * 그림의 움직임. 화면이 하는 말을 그림이 몸짓으로 한 번 더 한다.
+ * in = 조용히 나타남 · ok = 통 하고 자리잡음(맞아요) · no = 좌우로 도리도리(아니에요) · wobble = 한 번 흔들림(흔들린 사진)
+ * ring = 울리는 중(되풀이) · float = 기다리는 중(천천히 떠 있음) · beat = 여기를 보세요(맥박) · breathe = 놓을 자리(옅어졌다 진해짐)
+ * '동작 줄이기'가 켜져 있으면 흐려짐만 남긴다.
+ */
+export type MoveKind = 'in' | 'ok' | 'no' | 'wobble' | 'ring' | 'float' | 'beat' | 'breathe';
+const SWING = [0, 0.2, 0.4, 0.6, 0.8, 1];
+const swing = (v: Animated.Value, amp: number, unit?: 'deg') => {
+  const out = [0, -amp, amp, -amp * 0.6, amp * 0.6, 0];
+  return unit ? v.interpolate({ inputRange: SWING, outputRange: out.map((n) => `${n}${unit}`) }) : v.interpolate({ inputRange: SWING, outputRange: out });
+};
+export function Move({
+  kind = 'in',
+  delay = 60,
+  x = 0,
+  loud,
+  style,
+  children,
+}: {
+  kind?: MoveKind;
+  delay?: number;
+  /** 들어올 때 옆에서 오는 거리 */
+  x?: number;
+  /** ring 을 더 크게·자주 */
+  loud?: boolean;
+  style?: StyleProp<ViewStyle>;
+  children: ReactNode;
+}) {
+  const [a] = useState(() => new Animated.Value(0));
+  const [b] = useState(() => new Animated.Value(0));
+  useEffect(() => {
+    const t = (toValue: number, duration: number, easing = Easing.linear) => Animated.timing(b, { toValue, duration, easing, useNativeDriver: native });
+    const soft = Easing.inOut(Easing.sin);
+    const enter =
+      kind === 'ok' && !reduce
+        ? Animated.spring(a, { toValue: 1, friction: 5, tension: 120, useNativeDriver: native })
+        : Animated.timing(a, { toValue: 1, duration: 320, easing: Easing.out(Easing.cubic), useNativeDriver: native });
+    const after = reduce
+      ? null
+      : kind === 'no'
+        ? t(1, 420)
+        : kind === 'wobble'
+          ? t(1, 640)
+          : kind === 'ring'
+            ? Animated.loop(Animated.sequence([t(1, 640), Animated.delay(loud ? 500 : 1400)]))
+            : kind === 'float'
+              ? Animated.loop(Animated.sequence([t(1, 1600, soft), t(0, 1600, soft)]))
+              : kind === 'beat'
+                ? Animated.loop(Animated.sequence([t(1, 300, soft), t(0, 300, soft), Animated.delay(900)]))
+                : kind === 'breathe'
+                  ? Animated.loop(Animated.sequence([t(1, 900, soft), t(0, 900, soft)]))
+                  : null;
+    const all = Animated.sequence([Animated.delay(delay), enter, ...(after ? [after] : [])]);
+    all.start();
+    return () => all.stop();
+  }, [a, b, kind, delay, loud]);
+  const fade = a.interpolate({ inputRange: [0, 0.6], outputRange: [0, 1], extrapolate: 'clamp' });
+  return (
+    <Animated.View
+      style={[
+        style,
+        {
+          opacity: kind === 'breathe' ? Animated.multiply(fade, b.interpolate({ inputRange: [0, 1], outputRange: [1, 0.35] })) : fade,
+          transform: [
+            { translateX: a.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 0 : x, 0] }) },
+            { scale: a.interpolate({ inputRange: [0, 1], outputRange: [reduce ? 1 : kind === 'ok' ? 0.6 : 0.94, 1] }) },
+            { translateX: kind === 'no' ? swing(b, 10) : 0 },
+            { translateY: kind === 'float' ? b.interpolate({ inputRange: [0, 1], outputRange: [0, -6] }) : 0 },
+            { rotate: kind === 'ring' ? swing(b, loud ? 9 : 5, 'deg') : kind === 'wobble' ? swing(b, 7, 'deg') : '0deg' },
+            { scale: kind === 'beat' ? b.interpolate({ inputRange: [0, 1], outputRange: [1, 1.14] }) : 1 },
+          ],
+        },
+      ]}
+    >
+      {children}
+    </Animated.View>
+  );
+}
+
+/** 아래에서 16 올라오며 나타남(목업 mv-up). delay 는 초 */
+export function Up({ delay = 0, style, children }: { delay?: number; style?: StyleProp<ViewStyle>; children: ReactNode }) {
+  const [v] = useState(() => new Animated.Value(reduce ? 1 : 0));
+  useEffect(() => {
+    if (reduce) return;
+    const a = Animated.timing(v, { toValue: 1, duration: 360, delay: delay * 1000, easing: Easing.bezier(0.05, 0.7, 0.1, 1), useNativeDriver: native });
+    a.start();
+    return () => a.stop();
+  }, [v, delay]);
+  // 기본은 화면 전체를 덮는 빈 판: 안의 절대 좌표가 화면 좌표 그대로다
+  return (
+    <Animated.View pointerEvents="box-none" style={[style ?? { position: 'absolute', left: 0, top: 0, right: 0, bottom: 0 }, { opacity: v, transform: [{ translateY: v.interpolate({ inputRange: [0, 1], outputRange: [16, 0] }) }] }]}>
+      {children}
+    </Animated.View>
+  );
 }
 
 /** 가로 한 줄 (가운데, 간격 8) */

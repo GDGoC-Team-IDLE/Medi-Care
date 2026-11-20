@@ -1,4 +1,4 @@
-// 화면 목록. id 는 목업(design/mockup)의 data-screen 값과 같고, 주소는 src/app/<patient|guardian|common>/<id>.tsx 이다.
+// 화면 목록. id 는 목업 6판(design/mockup/v6)의 data-screen 값과 같고, 주소는 src/app/<patient|guardian|common>/<id>.tsx 이다.
 import type { ComponentType } from 'react';
 import * as A from './account';
 import * as R from './register';
@@ -14,7 +14,7 @@ const s = (id: string, title: string, C: ComponentType): ScreenDef => ({ id, tit
 export const FLOWS: Flow[] = [
   {
     name: '계정',
-    screens: [s('c01-login', '보호자 로그인', A.Login), s('c02-device', '누구 폰인가요?', A.Device), s('c03-patient', '어르신 이름', A.Patient), s('c04-linked', '연결됐어요', A.Linked), s('c05-notify', '알림 켜기', A.Notify)],
+    screens: [s('c01-login', '보호자 로그인', A.Login), s('c02-device', '누가 쓸 폰인가요?', A.Device), s('c03-patient', '어르신 이름', A.Patient), s('c04-linked', '연결됐어요', A.Linked), s('c05-notify', '알림을 켜 주세요', A.Notify)],
   },
   {
     name: '연결 숫자 (별안)',
@@ -22,7 +22,7 @@ export const FLOWS: Flow[] = [
   },
   {
     name: '약봉투 등록',
-    screens: [s('p01-scan', '약봉투 찍기', R.Scan), s('p12-reading', '읽는 중', R.Reading), s('p23-review', '회차 확인', R.Review), s('p03-caution', '주의사항', R.CautionScreen), s('p28-start', '일정 시작', R.Start)],
+    screens: [s('p01-scan', '약봉투 찍기', R.Scan), s('p12-reading', '읽고 있어요', R.Reading), s('p23-review', '회차 확인', R.Review), s('p03-caution', '주의사항', R.CautionScreen), s('p28-start', '일정 시작', R.Start)],
   },
   {
     name: '고치기',
@@ -34,23 +34,27 @@ export const FLOWS: Flow[] = [
   },
   {
     name: '기록',
-    screens: [s('p27-didtake', '오늘 약', T.DidTake), s('p33-days', '지난 날', T.PastDays), s('c09-day', '그날의 기록', T.Day)],
+    screens: [s('p27-didtake', '오늘 약', T.DidTake), s('p33-days', '지난 기록', T.PastDays), s('c09-day', '그날의 기록', T.Day)],
   },
   {
     name: '알림',
-    screens: [s('p17-notice', '일반 알림', D.Notice), s('p17b-again', '다시 알림', D.NoticeAgain), s('p05-alarm', '잠금화면 알람', D.Alarm), s('p05b-loud', '큰 소리 알람', D.AlarmLoud), s('p32-nomed', '약이 없어요', D.NoMed)],
+    screens: [s('p17-notice', '일반 알림', D.Notice), s('p17b-again', '다시 알림', D.NoticeAgain), s('p05-alarm', '잠금화면 알람', D.Alarm), s('p05b-loud', '큰 소리 알람', D.AlarmLoud)],
+  },
+  {
+    name: '약 없음',
+    screens: [s('p32-nomed', '약이 없어요', D.NoMed), s('p32b-afternomed', '약 없음 뒤 허브', T.AfterNoMed), s('g11c-nomed', '약 없음 알림', G.LockNoMed), s('g18-afternomed', '확인 뒤 현황 (약 없음)', G.GAfterNoMed)],
   },
   {
     name: '인증 촬영',
-    screens: [s('p30-before', '이미 드신 약', D.Before), s('p06-shoot', '촬영', D.Shoot), s('p06b-dark', '어두움', D.ShootDark), s('p18-checking', '보는 중', D.Checking)],
+    screens: [s('p30-before', '이미 드신 약', D.Before), s('p06-shoot', '촬영', D.Shoot), s('p06b-dark', '어두움', D.ShootDark), s('p18-checking', '확인하고 있어요', D.Checking)],
   },
   {
     name: '판정',
-    screens: [s('p07-ok', '맞아요', D.Ok), s('p08-wrongtime', '다른 회차 약', D.WrongTime), s('p09-already', '이미 드셨어요', D.Already), s('p10-count', '개수 다름', D.Count), s('p11-retake', '다시 찍기', D.Retake)],
+    screens: [s('p07-ok', '맞아요', D.Ok), s('p08-wrongtime', '다른 회차 약', D.WrongTime), s('p09-already', '이미 드신 약', D.Already), s('p10-count', '개수 다름', D.Count), s('p11-retake', '다시 찍기', D.Retake)],
   },
   {
     name: '실패 · 연결 없음',
-    screens: [s('p13-noread', '글씨가 안 보여요', D.NoRead), s('p22-unsure', '보호자와 같이', D.Unsure), s('p15-offline', '인터넷 없음', D.Offline), s('p15t-slow', '오래 걸려요', D.Slow)],
+    screens: [s('p13-noread', '글씨가 안 보여요', D.NoRead), s('p22-unsure', '딸과 같이 보기', D.Unsure), s('p15-offline', '인터넷 없음', D.Offline), s('p15t-slow', '오래 걸려요', D.Slow)],
   },
   {
     name: '기기 권한',
@@ -61,8 +65,12 @@ export const FLOWS: Flow[] = [
     screens: [s('g10-lockmiss', '미복용 알림', G.LockMiss), s('g02-missed', '미복용 사건', G.MissedEvent), s('g12-after', '확인 뒤 현황', G.GAfter), s('g15-resolved', '해결 알림', G.LockResolved)],
   },
   {
-    name: '보호자 · 오복용',
-    screens: [s('g11-lockwrong', '오복용 알림 (개수)', G.LockWrong), s('g11t-locktime', '오복용 알림 (다른 회차)', G.LockWrongTime), s('g11a-lockagain', '오복용 알림 (또 찍음)', G.LockAgain), s('g03-wrong', '오복용 사건', G.WrongEvent), s('g19-afterwrong', '확인 뒤 현황 (오복용)', G.GAfterWrong), s('g11c-nomed', '약 없음 알림', G.LockNoMed), s('g18-afternomed', '확인 뒤 현황 (약 없음)', G.GAfterNoMed)],
+    name: '보호자 · 오복용 (개수)',
+    screens: [s('g11-lockwrong', '오복용 알림 (개수)', G.LockWrong), s('g03-wrong', '오복용 사건 (개수)', G.WrongEvent), s('g19-afterwrong', '확인 뒤 현황 (오복용)', G.GAfterWrong)],
+  },
+  {
+    name: '보호자 · 오복용 (다른 회차 · 또 찍음)',
+    screens: [s('g11t-locktime', '오복용 알림 (다른 회차)', G.LockWrongTime), s('g03t-wrongtime', '오복용 사건 (다른 회차)', G.WrongTimeEvent), s('g11a-lockagain', '오복용 알림 (또 찍음)', G.LockAgain), s('g03a-again', '오복용 사건 (또 찍음)', G.AgainEvent)],
   },
   {
     name: '안부 신호',
@@ -70,6 +78,6 @@ export const FLOWS: Flow[] = [
   },
   {
     name: '보호자 현황',
-    screens: [s('g01-today', '오늘 현황', G.GToday), s('c08-calendar', '달력', G.Calendar), s('g08-empty', '약 없음', G.GEmpty), s('g16-alarmset', '알림 방식', G.AlarmSet)],
+    screens: [s('g01-today', '오늘 현황', G.GToday), s('c08-calendar', '달력', G.Calendar), s('g08-empty', '약 없음', G.GEmpty), s('g16-alarmset', '화면 가득 알림', G.AlarmSet)],
   },
 ];

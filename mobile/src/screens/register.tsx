@@ -2,9 +2,9 @@
 import { useEffect, useState } from 'react';
 import { View } from 'react-native';
 import { back, go, swap } from '@/lib/nav';
-import { C } from '@/constants/theme';
-import { Icon, Ill, Phone, Row, T, Tap, abs, type IconName, type IllName } from '@/components/core';
-import { Arc, Back, Btn, Ring, Say, Shutter, Sub, Viewfinder } from '@/components/parts';
+import { C, R } from '@/constants/theme';
+import { Icon, Ill, Phone, Pop, Row, T, Tap, Up, abs, type IconName, type IllName } from '@/components/core';
+import { Back, Btn, CamTitle, Say, ScanCard, Shutter, Sub, Tray, Viewfinder, type ScanSpec } from '@/components/parts';
 
 /** 행 끝의 ›: 보이는 선의 오른쪽 끝이 끝선 28 에 오게 당긴다 */
 const CHEV = { marginRight: -12 };
@@ -13,41 +13,63 @@ const CHEV = { marginRight: -12 };
 export function Scan() {
   return (
     <Phone bg={C.cam} fg={C.white}>
-      <Back close />
-      <Say text="약봉투를 글씨가 보이게 펴서 찍어 주세요." />
-      <Row center top={128}>
-        <Icon name="c-envelope-rx" />
-        <T s={32} k>
-          약봉투
-        </T>
-      </Row>
-      <T k center top={176}>
-        글씨가 보이게 펴서
-      </T>
+      <Back close onPress={() => swap('p21-empty')} />
+      <CamTitle icon="c-envelope-rx" title="약봉투" tell="글씨가 보이게 펴 주세요" />
       <Viewfinder photo="photo-envelope" />
       <Shutter onPress={() => go('p12-reading')} />
+      {/* 7판: 찍는 화면에서만 듣기를 셔터 오른쪽(오른손 엄지 자리)으로 */}
+      <Say cam text="약봉투를 글씨가 보이게 펴서 찍어 주세요." />
     </Phone>
   );
 }
 
-/** p12 읽는 중. 8초를 넘으면 p15t(오래 걸려요)로 넘어간다 */
+/** p12 글줄 위치(사진 좌표 300×400). 앱에서는 OCR 글줄 상자(0~1 비율) × 사진 크기로 바뀐다 */
+const READ: ScanSpec = {
+  photo: 'photo-envelope',
+  glints: [
+    ['<rect x="99" y="89" width="106" height="40" rx="20" transform="rotate(-2.3 152 109)"/>', 0.8],
+    ['<rect x="72" y="139" width="158" height="17" rx="8.5" transform="rotate(-2.3 151 147)"/>', 0.93],
+    ['<rect x="74" y="154" width="172" height="72" rx="14" transform="rotate(-2.3 160 190)"/>', 1.08],
+    ['<rect x="78" y="236" width="164" height="17" rx="8.5" transform="rotate(-2.3 160 245)"/>', 1.28],
+    ['<rect x="80" y="257" width="114" height="17" rx="8.5" transform="rotate(-2.3 137 265)"/>', 1.35],
+    ['<rect x="122" y="297" width="116" height="17" rx="8.5" transform="rotate(-2.3 180 305)"/>', 1.49],
+  ],
+  frame: { d: 'M62 108V94A14 14 0 0 1 76 80h22M218 80h22a14 14 0 0 1 14 14v14M254 248v14a14 14 0 0 1-14 14h-22M98 276H76a14 14 0 0 1-14-14v-14', rotate: 'rotate(-2.3 158 178)', at: 1.55 },
+  marks: [
+    ['<path d="M84 232L120 230.5"/>', 4.45],
+    ['<path d="M141 228L177 226.5"/>', 4.75],
+    ['<path d="M199 224L235 222.5"/>', 5.05],
+  ],
+  slots: [
+    ['pouch-morning', 1.6, 4.55],
+    ['pouch-noon', 2.6, 4.85],
+    ['pouch-evening', 3.6, 5.15],
+  ],
+};
+
+/**
+ * p12 읽는 중. 목업은 4.4s 에 응답이 오는 장면. 앱에서는 응답이 올 때까지 훑기를 되풀이하고(8초 넘으면 p15t),
+ * 응답이 오면 지금 훑기를 끝까지 보낸 뒤 밑줄로 넘어간다. 서버 전이라 장면이 끝나면 회차 확인으로 간다.
+ */
 export function Reading() {
   useEffect(() => {
-    const t = setTimeout(() => swap('p23-review'), 1800);
+    const t = setTimeout(() => swap('p23-review'), 5900);
     return () => clearTimeout(t);
   }, []);
   return (
     <Phone>
       <Back close />
-      <Ring photo="photo-envelope" title="읽는 중" />
+      <ScanCard spec={READ} title="읽고 있어요" />
     </Phone>
   );
 }
 
-function SlotRow({ top, pouch, name, count, onPress }: { top: number; pouch: IllName; name: string; count: string; onPress: () => void }) {
+function SlotRow({ top, pouch, name, count, onPress, i = 0 }: { top: number; pouch: IllName; name: string; count: string; onPress: () => void; i?: number }) {
   return (
     <Tap onPress={onPress} style={[abs({ left: 28, right: 28, top, height: 96 }), { flexDirection: 'row', alignItems: 'center', gap: 16 }]}>
-      <Ill name={pouch} />
+      <Pop delay={250 + i * 90}>
+        <Ill name={pouch} />
+      </Pop>
       <T s={32} k style={{ flex: 1 }}>
         {name}
       </T>
@@ -70,10 +92,10 @@ export function Review() {
         <Icon name="chevron-right" />
       </Tap>
       <SlotRow top={228} pouch="pouch-morning" name="아침" count="2알" onPress={() => go('p23b-slot')} />
-      <SlotRow top={348} pouch="pouch-noon" name="점심" count="2알" onPress={() => go('p23b-slot')} />
-      <SlotRow top={468} pouch="pouch-evening" name="저녁" count="3알" onPress={() => go('p23b-slot')} />
+      <SlotRow i={1} top={348} pouch="pouch-noon" name="점심" count="2알" onPress={() => go('p23b-slot')} />
+      <SlotRow i={2} top={468} pouch="pouch-evening" name="저녁" count="3알" onPress={() => go('p23b-slot')} />
       <Btn two label="맞아요" onPress={() => go('p03-caution')} />
-      <Sub label="모르겠어요" onPress={() => go('p22-unsure')} />
+      <Sub label="잘 모르겠어요" onPress={() => go('p22-unsure')} />
     </Phone>
   );
 }
@@ -93,12 +115,12 @@ function Caution({ top, icon, title, tell }: { top: number; icon: IconName; titl
 const PRIMARY_CAUTION = {
   title: '같이 드시면 안 돼요',
   drugs: '리바로정 · 젬피브로질',
-  tell: '다른 병원 약에 있으면 약사에게 물어요',
+  tell: '다른 병원 약은 약사에게 물어보세요',
 };
 
 const OTHER_CAUTIONS = [
-  { top: 388, icon: 'circle-alert', title: '어지러울 수 있어요', tell: '천천히 일어나요' },
-  { top: 484, icon: 'pill', title: '위장약이 겹쳐요', tell: '약사에게 물어요' },
+  { top: 388, icon: 'circle-alert', title: '어지러울 수 있어요', tell: '천천히 일어나세요' },
+  { top: 484, icon: 'pill', title: '위장약이 겹쳐요', tell: '약사에게 물어보세요' },
 ] as const;
 
 /** p03 주의사항. DUR 3종: 병용금기(맨 위, 크게) · 노인주의 · 효능군 중복. 약 조합은 예시 */
@@ -111,8 +133,13 @@ export function CautionScreen() {
       <Back />
       <Say text={guidance.join('. ')} />
       <Row left={28} top={132}>
-        <Ill name="pill-scored" />
-        <Ill name="pill-oval" />
+        {/* 문제의 두 약이 하나씩 놓인다 */}
+        <Pop delay={120}>
+          <Ill name="pill-scored" />
+        </Pop>
+        <Pop delay={240}>
+          <Ill name="pill-oval" />
+        </Pop>
       </Row>
       <T h left={28} top={204}>
         {title}
@@ -135,25 +162,33 @@ export function Start() {
     <Phone>
       <Back />
       <Say icon text="오늘 점심부터 시작해요. 11월 26일까지 드세요." />
-      <Arc slots={['none', 'plan', 'plan']} focus={1} now={0.3} />
-      <T s={32} k c={C.plan} center top={304}>
-        오늘
-      </T>
-      <T s={56} k lh={1} center top={344}>
-        점심부터
-      </T>
-      <T c={C.ink2} center top={504}>
-        11월 26일까지
-      </T>
-      <Btn label="확인" onPress={() => swap('p04-today')} />
+      <Tray slots={['none', 'plan', 'plan']} f={1} now={0.3} />
+      <Up delay={0.6}>
+        <T s={32} k c={C.plan} center top={336}>
+          오늘
+        </T>
+      </Up>
+      <Up delay={0.7}>
+        <T s={56} k lh={1} center top={384}>
+          점심부터
+        </T>
+      </Up>
+      <Up delay={0.7}>
+        <T c={C.ink2} center top={472}>
+          11월 26일까지
+        </T>
+      </Up>
+      <Btn up={0.85} label="시작하기" onPress={() => swap('p04-today')} />
     </Phone>
   );
 }
 
-function DrugRow({ top, pill, name, onPress }: { top: number; pill: IllName; name: string; onPress: () => void }) {
+function DrugRow({ top, pill, name, onPress, i = 0 }: { top: number; pill: IllName; name: string; onPress: () => void; i?: number }) {
   return (
     <Tap onPress={onPress} style={[abs({ left: 28, right: 28, top, height: 96 }), { flexDirection: 'row', alignItems: 'center', gap: 16 }]}>
-      <Ill name={pill} />
+      <Pop delay={250 + i * 90}>
+        <Ill name={pill} />
+      </Pop>
       <View style={{ flex: 1 }}>
         <T k>{name}</T>
         <T c={C.ink2}>식후</T>
@@ -176,8 +211,8 @@ export function SlotDrugs() {
         점심 2알
       </T>
       <DrugRow top={228} pill="pill-capsule" name="다이아벡스정" onPress={() => go('p25-drug')} />
-      <DrugRow top={348} pill="pill-round-blue" name="스티렌정" onPress={() => go('p25-drug')} />
-      <Btn label="됐어요" onPress={back} />
+      <DrugRow i={1} top={348} pill="pill-round-blue" name="스티렌정" onPress={() => go('p25-drug')} />
+      <Btn label="확인" onPress={back} />
     </Phone>
   );
 }
@@ -208,7 +243,7 @@ function Toggle({ on, icon, label, row, onPress }: { on: boolean; icon: IconName
 }
 
 function Stepper({ value, onChange, min = 1, max = 99, unit }: { value: number; onChange: (n: number) => void; min?: number; max?: number; unit: string }) {
-  const round = { width: 96, height: 96, borderRadius: 48, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center' } as const;
+  const round = { width: 96, height: 96, borderRadius: R.l, backgroundColor: C.tint, alignItems: 'center', justifyContent: 'center' } as const;
   return (
     <View style={[abs({ left: 28, right: 28, top: 504, height: 96 }), { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }]}>
       <Tap accessibilityLabel="빼기" onPress={() => onChange(Math.max(min, value - 1))} style={round}>
@@ -248,7 +283,7 @@ export function Drug() {
         <Toggle row on={after} icon="c-meal-after" label="식후" onPress={() => setAfter(true)} />
       </View>
       <Stepper value={count} onChange={setCount} max={9} unit="알" />
-      <Btn label="됐어요" onPress={back} />
+      <Btn label="저장하기" onPress={back} />
     </Phone>
   );
 }
@@ -262,7 +297,7 @@ export function Days() {
       <Back />
       <Say text={`오늘부터 ${days}일 동안 드세요.`} />
       <T h left={28} top={132}>
-        며칠 드세요?
+        며칠 드시나요?
       </T>
       <Row left={28} top={276}>
         <Icon name="calendar-days" />
@@ -272,7 +307,7 @@ export function Days() {
         {end.getMonth() + 1}월 {end.getDate()}일까지
       </T>
       <Stepper value={days} onChange={setDays} max={90} unit="일" />
-      <Btn label="됐어요" onPress={back} />
+      <Btn label="저장하기" onPress={back} />
     </Phone>
   );
 }
