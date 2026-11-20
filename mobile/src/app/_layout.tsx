@@ -1,7 +1,7 @@
 import * as Notifications from 'expo-notifications';
 import { Stack, router, type Href } from 'expo-router';
 import { useEffect } from 'react';
-import { AppState } from 'react-native';
+import { AppState, Platform } from 'react-native';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { C } from '@/constants/theme';
 import {
@@ -20,6 +20,8 @@ function openNotificationRoute(data: Record<string, unknown>) {
 
 export default function Layout() {
   useEffect(() => {
+    // 웹(화면 확인용)에는 로컬 알림·마지막 알림 응답 API 가 없어 앱이 멈춘다. 알림 연결은 기기에서만 한다
+    if (Platform.OS === 'web') return;
     void initializeMedicationNotifications();
     void flushDueGuardianEscalations();
     void registerGuardianPushToken().catch(() => undefined);

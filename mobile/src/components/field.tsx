@@ -1,7 +1,7 @@
 // 입력 칸: 이름표 · 옅은 면 · 초점 테두리 · 지우기/비밀번호 보기 · 오류 한 줄
 import { useEffect, useRef, useState, type RefObject } from 'react';
 import { Animated, Easing, Platform, Pressable, TextInput, View, type TextInputInstance, type TextInputProps } from 'react-native';
-import { C } from '@/constants/theme';
+import { C, R } from '@/constants/theme';
 import { Icon, T, Tap, abs } from './core';
 
 type FieldProps = Omit<TextInputProps, 'style'> & {
@@ -37,7 +37,7 @@ export function Field({ label, top, error, secret, inputRef, value, onChangeText
             flex: 1,
             flexDirection: 'row',
             alignItems: 'center',
-            borderRadius: 16,
+            borderRadius: R.s,
             borderWidth: 2,
             paddingLeft: 18,
             paddingRight: 6,
