@@ -1,7 +1,4 @@
-import re
-
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, Field
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -10,23 +7,17 @@ from app.core.clock import now_local
 from app.core.database import get_db
 from app.enums import DoseStatus, GuardianAlertType, Slot
 from app.models import DoseSlot, GuardianAlert, Patient, PushToken
-from app.routers.auth import get_guardian_id
 from app.routers.patients import get_device_patient
 from app.services.expo_push import ExpoPushError, send_expo_push
 
 router = APIRouter(tags=["notifications"])
 
-EXPO_TOKEN_RE = re.compile(r"^(?:ExponentPushToken|ExpoPushToken)\[[A-Za-z0-9_-]+\]$")
 SLOT_LABELS = {
     Slot.MORNING: "아침",
     Slot.LUNCH: "점심",
     Slot.DINNER: "저녁",
     Slot.BEDTIME: "취침 전",
 }
-
-
-class PushTokenRequest(BaseModel):
-    expo_token: str = Field(max_length=255)
 
 
 def _alert_response(alert: GuardianAlert, *, tokens: int, sent: int, duplicate: bool) -> dict:
@@ -42,36 +33,6 @@ def _alert_response(alert: GuardianAlert, *, tokens: int, sent: int, duplicate: 
             "accepted": sent,
             "status": "SENT" if alert.push_sent_at else "PENDING",
         },
-    }
-
-
-@router.post("/push-tokens")
-def register_push_token(
-    data: PushTokenRequest,
-    guardian_id: int = Depends(get_guardian_id),
-    db: Session = Depends(get_db),
-):
-    if EXPO_TOKEN_RE.fullmatch(data.expo_token) is None:
-        raise HTTPException(
-            status.HTTP_400_BAD_REQUEST,
-            detail={
-                "code": "INVALID_PUSH_TOKEN",
-                "message": "알림 토큰 형식이 올바르지 않아요.",
-            },
-        )
-
-    token = db.scalar(select(PushToken).where(PushToken.expo_token == data.expo_token))
-    if token is None:
-        token = PushToken(guardian_id=guardian_id, expo_token=data.expo_token)
-        db.add(token)
-    else:
-        token.guardian_id = guardian_id
-    db.commit()
-    db.refresh(token)
-    return {
-        "push_token_id": token.id,
-        "expo_token": token.expo_token,
-        "message": "알림 받을 준비가 됐어요.",
     }
 
 
