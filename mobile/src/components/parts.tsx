@@ -1,10 +1,11 @@
 // 화면 유형마다 되풀이되는 부품 (목업의 0번 틀 · 허브 · 판정 · 카메라 · 잠금 알림)
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode } from 'react';
-import { Animated, Easing, Platform, View } from 'react-native';
+import { Animated, Easing, Image, Platform, View } from 'react-native';
 import Svg, { Circle, Ellipse, Path, Rect } from 'react-native-svg';
 import * as Speech from 'expo-speech';
-import { back } from '@/lib/nav';
+import * as ImagePicker from 'expo-image-picker';
+import { back, go } from '@/lib/nav';
 import { TODAY_LONG } from '@/lib/mock';
 import { C, W } from '@/constants/theme';
 import { Color, Icon, Ill, Pop, Row, StatusMark, T, Tap, abs, reduceMotion, useBackSlot, useFg, type IconName, type IllName, type Pos, type Status } from './core';
@@ -317,11 +318,33 @@ export function Viewfinder({ photo, dark, guide }: { photo: IllName; dark?: bool
     </View>
   );
 }
-export function Shutter({ onPress }: { onPress?: () => void }) {
+/** 마지막으로 찍은 사진 uri. 다음 화면의 Ring(읽는 중·보는 중)이 보여 준다 */
+let shot: string | null = null;
+
+/** 찍기: 기기 카메라를 열고, 찍은 사진의 uri 를 onPress 로 넘긴다. 권한이 없으면 p14 */
+export function Shutter({ onPress }: { onPress?: (uri: string) => void }) {
+  const busy = useRef(false); // 두 번 눌러도 카메라는 한 번만
+  const shoot = async () => {
+    if (busy.current) return;
+    busy.current = true;
+    try {
+      const perm = await ImagePicker.requestCameraPermissionsAsync();
+      if (!perm.granted) return go('p14-nocam');
+      const res = await ImagePicker.launchCameraAsync({ mediaTypes: ['images'], quality: 0.7 });
+      if (!res.canceled) {
+        shot = res.assets[0].uri;
+        onPress?.(shot);
+      }
+    } catch {
+      go('p14-nocam'); // 카메라가 없는 기기·에뮬레이터
+    } finally {
+      busy.current = false;
+    }
+  };
   return (
     <Tap
       accessibilityLabel="찍기"
-      onPress={onPress}
+      onPress={shoot}
       style={[abs({ left: 139, top: 680, width: 112, height: 112 }), { borderRadius: 56, backgroundColor: C.white, alignItems: 'center', justifyContent: 'center' }]}
     >
       <View style={{ width: 104, height: 104, borderRadius: 52, borderWidth: 6, borderColor: C.cam, alignItems: 'center', justifyContent: 'center' }}>
@@ -345,7 +368,7 @@ export function Ring({ photo, title }: { photo: IllName; title: string }) {
     <>
       <View style={abs({ left: 115, top: 300, width: 160, height: 160 })}>
         <View style={[abs({ left: 16, top: 16, width: 128, height: 128 }), { borderRadius: 64, overflow: 'hidden' }]}>
-          <Ill name={photo} w={160} h={214} style={abs({ left: -16, top: -36 })} />
+          {shot ? <Image source={{ uri: shot }} style={{ width: 128, height: 128 }} resizeMode="cover" /> : <Ill name={photo} w={160} h={214} style={abs({ left: -16, top: -36 })} />}
         </View>
         <Svg width={160} height={160} viewBox="0 0 160 160" style={abs({ left: 0, top: 0 })}>
           <Circle cx={80} cy={80} r={76} fill="none" stroke={C.line} strokeWidth={6} />
