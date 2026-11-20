@@ -53,6 +53,24 @@ def create_patient(
     return {"patient_id": patient.id, "name": patient.name}
 
 
+@router.get("/patients")
+def list_patients(
+    guardian_id: int = Depends(get_guardian_id),
+    db: Session = Depends(get_db),
+):
+    """보호자에게 연결된 어르신 목록 (만든 순서). paired = 어르신 폰이 연결됐는지."""
+
+    patients = db.scalars(
+        select(Patient).where(Patient.guardian_id == guardian_id).order_by(Patient.id)
+    ).all()
+    return {
+        "patients": [
+            {"patient_id": patient.id, "name": patient.name, "paired": patient.device_token is not None}
+            for patient in patients
+        ]
+    }
+
+
 @router.post("/patients/{patient_id}/pairing-code")
 def create_pairing_code(
     patient_id: int,

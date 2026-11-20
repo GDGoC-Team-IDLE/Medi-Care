@@ -3,7 +3,8 @@ import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import { ScrollView, View } from 'react-native';
 import { useLocalSearchParams } from 'expo-router';
 import { back, go, swap } from '@/lib/nav';
-import { api, ApiError, appendFile } from '@/lib/api';
+import { api, ApiError, TOKEN_KEYS, appendFile } from '@/lib/api';
+import { getItem } from '@/lib/storage';
 import { C, R } from '@/constants/theme';
 import { Icon, Ill, Phone, Pop, Row, T, Tap, Up, abs, type IconName, type IllName } from '@/components/core';
 import { Back, Btn, CamTitle, Say, ScanCard, Shutter, Sub, Tray, Viewfinder, lastShot, type ScanSpec } from '@/components/parts';
@@ -104,20 +105,38 @@ interface Dur {
 }
 
 /** 저장한 처방. 같은 분석 결과를 두 번 저장하지 않도록 어느 preview 를 저장했는지 함께 둔다 */
-let saved: { from: Preview; res: Saved } | null = null;
+let saved: { from: Preview; who: string; res: Saved } | null = null;
 /** p03 이 보여 줄 주의사항 */
 let dur: Dur | null = null;
 
+/**
+ * 처방을 저장할 어르신. 어르신 폰(기기 토큰)이면 'me', 보호자 폰이면 GET /patients 의 첫 어르신 id
+ * (여러 명일 때 고르는 화면은 아직 없다). 보호자에게 연결된 어르신이 없으면 null
+ */
+async function owner(): Promise<string | null> {
+  if (await getItem(TOKEN_KEYS.device)) return 'me';
+  const { patients } = await api.get<{ patients: { patient_id: number }[] }>('/patients');
+  return patients.length ? String(patients[0].patient_id) : null;
+}
+
 /** p23 '맞아요': 처방 저장 → 주의사항 조회. 주의할 게 있으면 p03, 없으면 p28 */
 async function confirmPreview(p: Preview): Promise<string> {
-  if (saved?.from !== p) saved = { from: p, res: await api.post<Saved>('/patients/me/prescriptions', { drugs: drugsForSave(p) }) };
-  dur = await api.get<Dur>('/patients/me/dur-warnings');
+  const prev = saved;
+  const who = prev?.from === p ? prev.who : await owner();
+  if (!who) return 'c02-device'; // 연결된 어르신이 없음 → 어르신 폰 설정부터
+  if (prev?.from !== p) {
+    const res = await api.post<Saved>(`/patients/${who}/prescriptions`, { drugs: drugsForSave(p) });
+    saved = { from: p, who, res };
+  }
+  dur = await api.get<Dur>(`/patients/${who}/dur-warnings`);
   return dur.warnings.length || dur.unidentified_drugs.length ? 'p03-caution' : 'p28-start';
 }
 
 /** 저장·주의사항 실패 → 화면. 다시 해 보기는 회차 확인으로 (이미 저장했으면 저장은 건너뛴다) */
 function saveFail(x: unknown): string {
   const status = x instanceof ApiError ? x.status : -1;
+  if (status === 401) return 'c01-login'; // 로그인이 없거나 만료 · 연결이 끊긴 어르신 폰
+  if (status === 403) return 'c02-device'; // 이 폰으로는 그 어르신에 접근할 수 없음 → 폰 설정
   if (status === 400) return 'p22-unsure'; // 알 수·일수가 서버 범위 밖이거나 오늘 남은 회차가 없음 → 보호자와 같이
   if (status === 0) return 'p15-offline?retry=p23-review';
   return 'p15t-slow?retry=p23-review'; // 503 MFDS_UNAVAILABLE 등
@@ -152,6 +171,7 @@ async function analyze(uri: string): Promise<Preview> {
 /** 분석 실패 → 화면. 다시 해 보기가 약봉투 찍기로 오도록 retry 를 붙인다 */
 function failRoute(x: unknown): string {
   const status = x instanceof ApiError ? x.status : -1;
+  if (status === 401) return 'c01-login'; // 로그인도 기기 연결도 없음
   if (status === 413 || status === 415) return 'p13-noread';
   if (status === 0) return 'p15-offline?retry=p01-scan';
   return 'p15t-slow?retry=p01-scan'; // 503 AI_UNAVAILABLE 등
@@ -407,7 +427,8 @@ export function Start() {
           {until}
         </T>
       </Up>
-      <Btn up={0.85} label="시작하기" onPress={() => swap('p04-today')} />
+      {/* 보호자 폰에서 등록했으면 보호자 오늘로, 어르신 폰이면 어르신 오늘로 */}
+      <Btn up={0.85} label="시작하기" onPress={() => swap(saved && saved.who !== 'me' ? 'g01-today' : 'p04-today')} />
     </Phone>
   );
 }
