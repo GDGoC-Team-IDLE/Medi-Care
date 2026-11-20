@@ -68,6 +68,15 @@ type DraftDrug = PreviewDrug & { slotDoses?: Partial<Record<Slot, SlotDose>> };
 interface Preview {
   drugs: DraftDrug[];
   needs_retake: boolean;
+  totalDays?: number;
+}
+
+function longestDrugDuration(draft: Preview): number {
+  return Math.max(...draft.drugs.map((drug) => drug.days));
+}
+
+function draftDays(draft: Preview | null): number {
+  return draft ? draft.totalDays ?? longestDrugDuration(draft) : 7;
 }
 
 function doseForSlot(drug: DraftDrug, slot?: Slot): SlotDose {
@@ -76,7 +85,11 @@ function doseForSlot(drug: DraftDrug, slot?: Slot): SlotDose {
 
 /** 등록 API는 항목 하나에 공통 수량을 받으므로 수량과 식사 시점이 같은 회차만 묶는다. */
 function drugsForSave(draft: Preview): PreviewDrug[] {
+  const originalDays = longestDrugDuration(draft);
+  const totalDays = draftDays(draft);
   return draft.drugs.flatMap((drug) => {
+    // 가장 긴 복용 기간을 바꾸고, 원래 더 짧은 약은 새 종료일을 넘지 않도록 한다.
+    const days = drug.days === originalDays ? totalDays : Math.min(drug.days, totalDays);
     const groups: PreviewDrug[] = [];
     for (const slot of drug.slots) {
       const { count_per_dose, meal_timing } = doseForSlot(drug, slot);
@@ -84,7 +97,7 @@ function drugsForSave(draft: Preview): PreviewDrug[] {
       if (group) {
         group.slots.push(slot);
       } else {
-        groups.push({ name: drug.name, days: drug.days, slots: [slot], count_per_dose, meal_timing });
+        groups.push({ name: drug.name, days, slots: [slot], count_per_dose, meal_timing });
       }
     }
     return groups;
@@ -254,7 +267,7 @@ function summary(p: Preview | null): { days: number; rows: [Slot, number][] } {
   const rows = SLOTS
     .map((s): [Slot, number] => [s, p.drugs.filter((d) => d.slots.includes(s)).reduce((n, d) => n + doseForSlot(d, s).count_per_dose, 0)])
     .filter(([, n]) => n > 0);
-  return { days: Math.max(...p.drugs.map((d) => d.days)), rows };
+  return { days: draftDays(p), rows };
 }
 
 /** p23 회차 요약. 행 → 그 회차의 약 목록, 제목 → 복용 일수 */
@@ -265,6 +278,7 @@ export function Review() {
   const said = rows.map(([s, n]) => `${SLOT_ROW[s].name} ${SAY_COUNT[n] ?? n} 알`).join(', ');
   const busy = useRef(false); // 두 번 눌러도 한 번만 저장
   const [saving, setSaving] = useState(false);
+  const canEditDays = !draft || saved?.from !== draft;
   const ok = async () => {
     if (!preview) return go('p03-caution'); // 화면 목록에서 연 예시는 예전처럼
     if (busy.current) return;
@@ -283,9 +297,11 @@ export function Review() {
     <Phone>
       <Back />
       <Say text={`${days}일치 약이에요. ${said}. 맞으면 맞아요를 눌러 주세요.`} />
-      <Tap onPress={() => go('p25d-days')} style={[abs({ left: 28, top: 121, height: 60 }), { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
+      <Tap disabled={!canEditDays || saving} onPress={() => {
+        if (!busy.current) go('p25d-days');
+      }} style={[abs({ left: 28, top: 121, height: 60 }), { flexDirection: 'row', alignItems: 'center', gap: 8 }]}>
         <T h>{days}일치 약</T>
-        <Icon name="chevron-right" />
+        {canEditDays && <Icon name="chevron-right" />}
       </Tap>
       {rows.map(([s, n], i) => (
         <SlotRow key={s} i={i} top={(four ? 204 : 228) + i * (four ? 100 : 120)} pouch={SLOT_ROW[s].pouch} name={SLOT_ROW[s].name} count={`${n}알`} onPress={() => {
@@ -602,8 +618,16 @@ function DrugEditor({ drug, editingSlot, onSave }: {
 
 /** p25d 복용 일수. 끝 날짜는 계산값(오늘 + 일수 − 1) */
 export function Days() {
-  const [days, setDays] = useState(7);
-  const end = new Date(2026, 10, 20 + days - 1);
+  const draft = useSyncExternalStore(subscribePreview, getPreview, getPreview);
+  const [days, setDays] = useState(() => Math.min(draftDays(draft), 90));
+  const end = new Date();
+  end.setDate(end.getDate() + days - 1);
+  const save = () => {
+    if (draft && draft === preview && saved?.from !== draft && draftDays(draft) !== days) {
+      setPreview({ ...draft, totalDays: days });
+    }
+    back();
+  };
   return (
     <Phone>
       <Back />
@@ -619,7 +643,7 @@ export function Days() {
         {end.getMonth() + 1}월 {end.getDate()}일까지
       </T>
       <Stepper value={days} onChange={setDays} max={90} unit="일" />
-      <Btn label="저장하기" onPress={back} />
+      <Btn label="저장하기" onPress={save} />
     </Phone>
   );
 }
