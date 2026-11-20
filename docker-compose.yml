@@ -1,0 +1,38 @@
+# 로컬 개발용입니다 (배포는 Render, render.yaml 참고).
+# backend + nginx 로 API 와 웹 빌드(mobile/dist)를 한 주소(http://localhost)에서 미리 봅니다.
+# DB 는 로컬에 띄우지 않고 .env 의 DATABASE_URL(Neon dev 브랜치)에 붙습니다.
+services:
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: medicare-nginx
+    ports:
+      - "80:80"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./mobile/dist:/usr/share/nginx/html:ro # 웹 빌드 결과 (cd mobile && npm run build:web)
+    depends_on:
+      backend:
+        condition: service_healthy
+    restart: unless-stopped
+
+  backend:
+    build: ./backend
+    container_name: medicare-backend
+    env_file: .env # DATABASE_URL 필수
+    environment:
+      UPLOAD_DIR: /app/uploads
+    volumes:
+      - uploads:/app/uploads # 로컬 테스트용 사진 저장 (운영은 Supabase Storage)
+    expose:
+      - "8000"
+    healthcheck:
+      # slim 이미지에 curl 이 없어 python 으로 확인합니다
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/api/v1/health', timeout=3)"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  uploads:
