@@ -6,7 +6,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from app import models  # noqa: F401  (create_all 전에 테이블을 등록하기 위해 import)
 from app.core.config import get_settings
 from app.core.database import Base, engine
-from app.routers import health
+from app.routers import auth, health, patients
 
 API_PREFIX = "/api/v1"
 
@@ -31,3 +31,5 @@ app.add_middleware(
 
 # 기능별 라우터는 routers/<분류>.py 로 만들고 여기에 같은 방식으로 등록합니다.
 app.include_router(health.router, prefix=API_PREFIX)
+app.include_router(auth.router, prefix=API_PREFIX)
+app.include_router(patients.router, prefix=API_PREFIX)

@@ -52,6 +52,10 @@ class Settings(BaseSettings):
     # 외부 크론(cron-job.org)이 POST /api/v1/internal/tick 을 부를 때 X-Cron-Secret 헤더로 보내는 값
     cron_secret: str = ""
 
+    # ── 인증 ──
+    # 운영에서는 반드시 긴 무작위 문자열을 사용합니다.
+    jwt_secret: str = ""
+
     @property
     def sqlalchemy_url(self) -> URL:
         return to_sqlalchemy_url(self.database_url)

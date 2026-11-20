@@ -44,8 +44,15 @@ class Guardian(Base):
     name: Mapped[str] = mapped_column(String(50))
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
-    patients: Mapped[list["Patient"]] = relationship(back_populates="guardian")
-    push_tokens: Mapped[list["PushToken"]] = relationship(back_populates="guardian")
+    patients: Mapped[list["Patient"]] = relationship(
+        back_populates="guardian", cascade="all, delete-orphan"
+    )
+    push_tokens: Mapped[list["PushToken"]] = relationship(
+        back_populates="guardian", cascade="all, delete-orphan"
+    )
+    refresh_tokens: Mapped[list["RefreshToken"]] = relationship(
+        back_populates="guardian", cascade="all, delete-orphan"
+    )
 
 
 class Patient(Base):
@@ -56,12 +63,21 @@ class Patient(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     guardian_id: Mapped[int] = mapped_column(ForeignKey("guardians.id"), index=True)
     name: Mapped[str] = mapped_column(String(50))
-    device_token: Mapped[str] = mapped_column(String(255), unique=True)
+    # 어르신 프로필을 먼저 만든 뒤 기기를 연결하므로 초기에는 NULL입니다.
+    # 원문 토큰이 아니라 SHA-256 해시를 저장합니다.
+    device_token: Mapped[str | None] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
     guardian: Mapped[Guardian] = relationship(back_populates="patients")
-    alarm_settings: Mapped[list["AlarmSetting"]] = relationship(back_populates="patient")
-    prescriptions: Mapped[list["Prescription"]] = relationship(back_populates="patient")
+    alarm_settings: Mapped[list["AlarmSetting"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    prescriptions: Mapped[list["Prescription"]] = relationship(
+        back_populates="patient", cascade="all, delete-orphan"
+    )
+    pairing_code: Mapped["PairingCode | None"] = relationship(
+        back_populates="patient", cascade="all, delete-orphan", uselist=False
+    )
 
 
 class AlarmSetting(Base):
@@ -88,6 +104,55 @@ class PushToken(Base):
     expo_token: Mapped[str] = mapped_column(String(255), unique=True)
 
     guardian: Mapped[Guardian] = relationship(back_populates="push_tokens")
+
+
+class RefreshToken(Base):
+    """로그인 상태를 연장하는 1회용 Refresh Token.
+
+    원문은 로그인 응답에서만 반환하고 DB에는 해시만 저장합니다.
+    """
+
+    __tablename__ = "refresh_tokens"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    guardian_id: Mapped[int] = mapped_column(ForeignKey("guardians.id"), index=True)
+    token_hash: Mapped[str] = mapped_column(String(64), unique=True, index=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+    guardian: Mapped[Guardian] = relationship(back_populates="refresh_tokens")
+
+
+class RevokedAccessToken(Base):
+    """로그아웃된 Access Token. 기존 JWT 만료 시각까지만 보관합니다."""
+
+    __tablename__ = "revoked_access_tokens"
+
+    token_hash: Mapped[str] = mapped_column(String(64), primary_key=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+
+
+class PairingCode(Base):
+    """보호자가 발급하고 어르신 기기가 1회 사용하는 6자리 연결 코드."""
+
+    __tablename__ = "pairing_codes"
+
+    code: Mapped[str] = mapped_column(String(6), primary_key=True)
+    patient_id: Mapped[int] = mapped_column(ForeignKey("patients.id"), unique=True)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, index=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+    patient: Mapped[Patient] = relationship(back_populates="pairing_code")
+
+
+class PairAttempt(Base):
+    """연결 코드 무작위 대입을 막기 위한 IP별 시도 기록."""
+
+    __tablename__ = "pair_attempts"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    client_ip: Mapped[str] = mapped_column(String(45), index=True)
+    attempted_at: Mapped[datetime] = mapped_column(DateTime, default=now_local, index=True)
 
 
 class DrugInfo(Base):
@@ -117,8 +182,12 @@ class Prescription(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
 
     patient: Mapped[Patient] = relationship(back_populates="prescriptions")
-    drugs: Mapped[list["PrescriptionDrug"]] = relationship(back_populates="prescription")
-    dose_slots: Mapped[list["DoseSlot"]] = relationship(back_populates="prescription")
+    drugs: Mapped[list["PrescriptionDrug"]] = relationship(
+        back_populates="prescription", cascade="all, delete-orphan"
+    )
+    dose_slots: Mapped[list["DoseSlot"]] = relationship(
+        back_populates="prescription", cascade="all, delete-orphan"
+    )
 
 
 class PrescriptionDrug(Base):
@@ -161,7 +230,9 @@ class DoseSlot(Base):
 
     prescription: Mapped[Prescription] = relationship(back_populates="dose_slots")
     patient: Mapped[Patient] = relationship()
-    logs: Mapped[list["DoseLog"]] = relationship(back_populates="dose_slot")
+    logs: Mapped[list["DoseLog"]] = relationship(
+        back_populates="dose_slot", cascade="all, delete-orphan"
+    )
 
 
 class DoseLog(Base):
