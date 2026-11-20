@@ -8,6 +8,7 @@ import { Icon, Phone, T, Tap, abs } from '@/components/core';
 import { Field } from '@/components/field';
 import { Back, Badge, Btn, Phone3D, PillNoti, Sub, Verdict } from '@/components/parts';
 import { requestMedicationNotificationPermissions } from '@/lib/medicationNotifications';
+import { isWeb } from '@/lib/platform';
 
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -304,11 +305,21 @@ export function Linked() {
   );
 }
 
-/** c05 알림 켜기. 누르면 권한을 차례로 묻는다(알림 · 정확한 알람 · 전체 화면 알림) */
+/** 어르신 첫 화면: 보호자가 등록한 복용 중인 처방이 있으면 p04(오늘 약), 없으면 p21(약 없음). 조회에 실패해도 p21 */
+export async function elderHome(): Promise<string> {
+  try {
+    const { prescriptions } = await api.get<{ prescriptions: unknown[] }>('/patients/me/prescriptions');
+    return prescriptions.length ? 'p04-today' : 'p21-empty';
+  } catch {
+    return 'p21-empty';
+  }
+}
+
+/** c05 알림 켜기. 누르면 권한을 차례로 묻는다(알림 · 정확한 알람 · 전체 화면 알림). 웹은 알림이 없어 바로 넘어간다 */
 export function Notify() {
   const enable = async () => {
-    const granted = await requestMedicationNotificationPermissions();
-    swap(granted ? 'p21-empty' : 'p26-belloff');
+    const granted = isWeb || (await requestMedicationNotificationPermissions());
+    swap(granted ? await elderHome() : 'p26-belloff');
   };
   return (
     <Phone>
