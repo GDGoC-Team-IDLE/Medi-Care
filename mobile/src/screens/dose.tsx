@@ -312,10 +312,11 @@ export function Unsure() {
   );
 }
 
-/** 다시 해 보기: 약봉투 등록에서 왔으면(?retry=p01-scan) 약봉투 찍기로, 아니면 인증 촬영으로 */
+/** 다시 해 보기: 약봉투 등록에서 왔으면(?retry=p01-scan · p23-review) 그 화면으로, 아니면 인증 촬영으로 */
+const RETRY = ['p01-scan', 'p23-review'];
 function useRetry() {
   const { retry } = useLocalSearchParams<{ retry?: string }>();
-  return () => swap(retry === 'p01-scan' ? 'p01-scan' : 'p06-shoot');
+  return () => swap(retry && RETRY.includes(retry) ? retry : 'p06-shoot');
 }
 
 /** p15 연결 없음. 판정이 없으면 먹으라고 하지 않는다. 알약이 약포로 돌아가 앉는다 */
