@@ -294,6 +294,8 @@ export function Today() {
  */
 export function Wait() {
   const { slots, retry } = useTodaySlots();
+  // '다음 시간대로 이동'(p19-wait-demo 와 같은 단추): 다음 회차를 지금 드실 회차로 보여 주고 찍기 → 그 회차로 인증
+  const [now, setNow] = useState(false);
   if (slots === undefined) return <Phone>{null}</Phone>;
   if (slots === 'error') return <LoadFail retry={retry} />;
   if (slots !== null) {
@@ -321,8 +323,27 @@ export function Wait() {
     const name = SLOT_ROW[next.slot].name;
     const meal = MEAL[drugs[0]?.meal_timing ?? 'AFTER'];
     const f = TRAY_TIMES.indexOf(next.slot); // 자기 전은 약통 칸이 없어 -1
+    if (now) {
+      // 지금 드실 회차: 찍을 봉투 하나(회차 하나)의 알 수 · 식전/식후. 같은 시간대 회차가 더 있으면 p04 가 이어서 보여 준다
+      const k = next.expected_count;
+      const nowMeal = MEAL[next.drugs[0]?.meal_timing ?? 'AFTER'];
+      return (
+        <Phone key="now">
+          <Say icon text={`${name} 약 드실 시간이에요. ${nowMeal} ${SAY_COUNT[k] ?? k} 알. 드시기 전에 사진을 찍어 주세요.`} />
+          <Tray slots={tray} f={f >= 0 ? f : undefined} cur={f >= 0 ? f : undefined} now={f >= 0 ? 0.62 : 1} />
+          <Up delay={0.6}>
+            <T s={84} num center top={360}>
+              {name}
+            </T>
+          </Up>
+          <Pills pills={next.drugs.slice(0, 4).map((_, i) => PILL_ILLS[i % PILL_ILLS.length])} count={`${k}알`} meal={nowMeal} />
+          <Btn up={0.85} two icon="camera" label="찍기" onPress={() => go(`p06-shoot?slot_id=${next.slot_id}`)} />
+          <Sub up={0.9} icon="arrow-right" label="처음으로" onPress={() => setNow(false)} />
+        </Phone>
+      );
+    }
     return (
-      <Phone>
+      <Phone key="wait">
         <Say icon text={`다음은 ${name} ${meal} ${SAY_COUNT[n] ?? n} 알이에요.`} />
         <Tray slots={tray} f={f >= 0 ? f : undefined} now={f >= 0 ? 0.62 : 1} />
         <Up delay={0.6}>
@@ -336,28 +357,13 @@ export function Wait() {
           </T>
         </Up>
         <Pills pills={drugs.slice(0, 4).map((_, i) => PILL_ILLS[i % PILL_ILLS.length])} count={`${n}알`} meal={meal} />
-        <Btn up={0.85} kind="idle" label="오늘 먹은 약 보기" onPress={() => go('p27-didtake')} />
+        <Btn up={0.85} two kind="idle" label="오늘 먹은 약 보기" onPress={() => go('p27-didtake')} />
+        <Sub up={0.9} icon="arrow-right" label="다음 시간대로 이동" onPress={() => setNow(true)} />
       </Phone>
     );
   }
-  return (
-    <Phone>
-      <Say icon text="점심 약은 드셨어요. 다음은 저녁 식후 세 알이에요." />
-      <Tray slots={['done', 'done', 'plan']} f={2} now={0.62} />
-      <Up delay={0.6}>
-        <T s={32} k c={C.plan} center top={336}>
-          다음
-        </T>
-      </Up>
-      <Up delay={0.7}>
-        <T s={84} num c={C.plan} center top={380}>
-          저녁
-        </T>
-      </Up>
-      <Pills pills={['pill-capsule', 'pill-round-blue', 'pill-scored']} count="3알" meal="식후" />
-      <Btn up={0.85} kind="idle" label="오늘 먹은 약 보기" onPress={() => go('p27-didtake')} />
-    </Phone>
-  );
+  // 기기 연결 전(화면 목록)이면 시연 화면과 같은 예시
+  return <WaitDemo />;
 }
 
 /**
