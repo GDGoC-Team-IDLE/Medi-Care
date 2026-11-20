@@ -7,8 +7,12 @@ from app import models  # noqa: F401  (create_all 전에 테이블을 등록하�
 from app.core.config import get_settings
 from app.core.database import Base, engine
 
-from app.routers import auth, health, notifications, patients
-from app.routers import auth, dose_status, health, patients, verifications
+from app.routers import auth
+from app.routers import dose_status
+from app.routers import health
+from app.routers import patients
+# from app.routers import auth, health, notifications, patients
+# from app.routers import auth, dose_status, health, patients, verifications
 API_PREFIX = "/api/v1"
 
 
