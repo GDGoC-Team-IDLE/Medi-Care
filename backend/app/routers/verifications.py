@@ -47,6 +47,7 @@ from app.services.dose_photo import PhotoAnalysis, analyze_dose_photo
 from app.services.expo_push import ExpoPushError, send_expo_push
 from app.services.gemini import GeminiUnavailableError
 from app.services.photo_storage import save_photo
+from app.services.photo_upload import read_photo
 from app.services.pill_appearance import AppearanceCheck, ExpectedPill, appearance_from_mfds, compare
 
 logger = logging.getLogger(__name__)
@@ -152,30 +153,6 @@ def get_target_patient(
     if patient is None or patient.guardian_id != guardian_id:
         raise _error("FORBIDDEN")
     return patient
-
-
-def _sniff_image_type(data: bytes) -> str | None:
-    """파일 앞부분으로 이미지 형식을 알아냅니다 (앱이 보내는 Content-Type 은 믿지 않음)."""
-    if data.startswith(b"\xff\xd8\xff"):
-        return "image/jpeg"
-    if data.startswith(b"\x89PNG\r\n\x1a\n"):
-        return "image/png"
-    if data[:4] == b"RIFF" and data[8:12] == b"WEBP":
-        return "image/webp"
-    return None
-
-
-def _read_photo(photo: UploadFile) -> tuple[bytes, str]:
-    limit_mb = get_settings().max_upload_mb
-    data = photo.file.read(limit_mb * 1024 * 1024 + 1)
-    if not data:
-        raise _error("IMAGE_REQUIRED")
-    if len(data) > limit_mb * 1024 * 1024:
-        raise ApiError(413, "IMAGE_TOO_LARGE", f"사진은 {limit_mb}MB 이하만 올릴 수 있어요.")
-    mime_type = _sniff_image_type(data)
-    if mime_type is None:
-        raise _error("UNSUPPORTED_IMAGE_TYPE")
-    return data, mime_type
 
 
 def _expected_pills(slot: DoseSlot) -> list[ExpectedPill]:
@@ -342,7 +319,7 @@ def verify_dose(
     now = now_local()
     if slot.slot_date != now.date():
         raise _error("SLOT_NOT_TODAY")
-    photo, mime_type = _read_photo(image)
+    photo, mime_type = read_photo(image, limit_mb=get_settings().max_upload_mb)
 
     analysis: PhotoAnalysis | None = None
     appearance: dict[str, Any] | None = None

@@ -21,6 +21,10 @@ class GeminiUnavailableError(Exception):
     """키 미설정, 네트워크 오류, 오류 응답 등으로 분석 결과를 받지 못함"""
 
 
+class GeminiResponseError(GeminiUnavailableError):
+    """Gemini가 HTTP 200으로 응답했지만 읽을 수 있는 JSON 객체가 없음."""
+
+
 def generate_json(*, image: bytes, mime_type: str, prompt: str, schema: dict[str, Any]) -> dict[str, Any]:
     """이미지와 지시문을 보내고, schema(JSON Schema) 모양의 JSON 객체를 돌려받습니다."""
     settings = get_settings()
@@ -53,7 +57,7 @@ def generate_json(*, image: bytes, mime_type: str, prompt: str, schema: dict[str
         raise GeminiUnavailableError(f"Gemini 호출 실패: {type(exc).__name__}") from exc
 
     if res.status_code != 200:
-        logger.warning("Gemini 오류 응답 %s: %s", res.status_code, res.text[:500])
+        logger.warning("Gemini 오류 응답 %s", res.status_code)
         raise GeminiUnavailableError(f"Gemini 오류 응답 ({res.status_code})")
 
     try:
@@ -61,10 +65,10 @@ def generate_json(*, image: bytes, mime_type: str, prompt: str, schema: dict[str
         parts = candidate["content"]["parts"]
         text = "".join(p.get("text", "") for p in parts if not p.get("thought"))
         result = json.loads(text)
-    except (KeyError, IndexError, TypeError, ValueError) as exc:
-        logger.warning("Gemini 응답을 해석하지 못했습니다: %s", res.text[:500])
-        raise GeminiUnavailableError("Gemini 응답을 해석하지 못했습니다.") from exc
+    except (AttributeError, KeyError, IndexError, TypeError, ValueError):
+        logger.warning("Gemini 응답을 해석하지 못했습니다.")
+        raise GeminiResponseError("Gemini 응답을 해석하지 못했습니다.") from None
 
     if not isinstance(result, dict):
-        raise GeminiUnavailableError("Gemini 응답이 JSON 객체가 아닙니다.")
+        raise GeminiResponseError("Gemini 응답이 JSON 객체가 아닙니다.")
     return result
