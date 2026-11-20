@@ -288,11 +288,6 @@ class GuardianAlert(Base):
             postgresql_where=text(CRON_ALERT_WHERE),
             sqlite_where=text(CRON_ALERT_WHERE),
         ),
-    """보호자 알림 내역. 회차 또는 사건별로 중복을 막습니다."""
-
-    __tablename__ = "guardian_alerts"
-    __table_args__ = (
-        UniqueConstraint("dose_slot_id", "type", name="uq_guardian_alert_slot_type"),
         Index("uq_guardian_alert_dedupe_key", "dedupe_key", unique=True),
     )
 

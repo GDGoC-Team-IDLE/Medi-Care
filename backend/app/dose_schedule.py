@@ -22,10 +22,12 @@ SLOT_TIMES = {
 @dataclass(frozen=True)
 class ScheduledDose:
     slot_id: int
+    prescription_id: int
     slot: Slot
     scheduled_at: datetime
     expected_count: int
     status: DoseStatus
+    dose_log_id: int | None
     result: VerifyResult | None
     taken_at: datetime | None
     photo_path: str | None
@@ -49,7 +51,7 @@ def list_scheduled_doses(db: Session, patient_id: int, slot_date: date) -> list[
         .scalar_subquery()
     )
     rows = db.execute(
-        select(DoseSlot, DoseLog.result, DoseLog.created_at, DoseLog.photo_path)
+        select(DoseSlot, DoseLog.id, DoseLog.result, DoseLog.created_at, DoseLog.photo_path)
         .outerjoin(DoseLog, DoseLog.id == log_id)
         .where(DoseSlot.patient_id == patient_id, DoseSlot.slot_date == slot_date)
     )
@@ -57,14 +59,16 @@ def list_scheduled_doses(db: Session, patient_id: int, slot_date: date) -> list[
     doses = [
         ScheduledDose(
             slot_id=slot.id,
+            prescription_id=slot.prescription_id,
             slot=slot.slot,
             scheduled_at=datetime.combine(slot.slot_date, SLOT_TIMES[slot.slot], timezone),
             expected_count=slot.expected_count,
             status=DoseStatus.DONE if result == VerifyResult.OK else slot.status,
+            dose_log_id=dose_log_id,
             result=result,
             taken_at=created_at.replace(tzinfo=timezone) if created_at else None,
             photo_path=photo_path,
         )
-        for slot, result, created_at, photo_path in rows
+        for slot, dose_log_id, result, created_at, photo_path in rows
     ]
     return sorted(doses, key=lambda dose: (dose.scheduled_at, dose.slot_id))
