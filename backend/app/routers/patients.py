@@ -116,20 +116,24 @@ def pair_device(data: PairRequest, request: Request, db: Session = Depends(get_d
     }
 
 
+def get_device_patient(device_token: str | None, db: Session) -> Patient:
+    if not device_token:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "기기 토큰이 필요합니다.")
+
+    patient = db.scalar(
+        select(Patient).where(Patient.device_token == token_hash(device_token))
+    )
+    if patient is None:
+        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "등록되지 않은 기기입니다.")
+    return patient
+
+
 @router.get("/patient/me")
 def patient_me(
     x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
     db: Session = Depends(get_db),
 ):
-    if not x_device_token:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "기기 토큰이 필요합니다.")
-
-    patient = db.scalar(
-        select(Patient).where(Patient.device_token == token_hash(x_device_token))
-    )
-    if patient is None:
-        raise HTTPException(status.HTTP_401_UNAUTHORIZED, "등록되지 않은 기기입니다.")
-
+    patient = get_device_patient(x_device_token, db)
     return {
         "patient_id": patient.id,
         "name": patient.name,
