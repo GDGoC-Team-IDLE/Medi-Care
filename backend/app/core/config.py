@@ -38,8 +38,6 @@ class Settings(BaseSettings):
     supabase_service_role_key: str = ""  # 서버 전용 키. 앱·웹 코드에 절대 넣지 않습니다.
     supabase_bucket: str = "dose-photos"
 
-    gemini_api_key: str = ""  # 보호자 리포트의 복약 기록 요약
-
     # ── 로컬 파일 저장 (로컬 테스트용) ──
     # Render 서버 디스크는 재시작·재배포 때 지워지므로 운영 사진은 Supabase 에 저장합니다.
     upload_dir: str = "/app/uploads"
@@ -49,6 +47,13 @@ class Settings(BaseSettings):
     # 다른 주소에서 API 를 부를 때 허용할 출처. 쉼표로 여러 개.
     # 기본값은 expo start --web 개발 서버. Render 에서는 웹 주소(https://medi-care-web.onrender.com)를 넣습니다.
     cors_origins: str = "http://localhost:8081"
+
+    # ── Gemini (복약 인증 사진 분석 · 보호자 리포트 요약) ──
+    gemini_api_key: str = ""
+    # 모델 이름은 https://ai.google.dev/gemini-api/docs/models 에서 확인합니다.
+    # gemini-2.5-flash 는 새 키에서 404 입니다. 인식이 부족하면 gemini-3.8-flash (약 5배 비쌈).
+    gemini_model: str = "gemini-3.5-flash-lite"
+    gemini_timeout_seconds: float = 30
 
     # ── 주기 작업 ──
     # 외부 크론(cron-job.org)이 POST /api/v1/internal/tick 을 부를 때 X-Cron-Secret 헤더로 보내는 값

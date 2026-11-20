@@ -7,3 +7,7 @@ _tmp = tempfile.mkdtemp(prefix="medicare-test-")
 os.environ["DATABASE_URL"] = f"sqlite:///{_tmp}/test.db"
 os.environ["UPLOAD_DIR"] = f"{_tmp}/uploads"
 os.environ["JWT_SECRET"] = "test-secret-key-for-unit-testing-1234567890"
+# ../.env 에 실제 키가 있어도 테스트가 외부 서비스(Supabase, Gemini)를 부르지 않게 비웁니다.
+os.environ["SUPABASE_URL"] = ""
+os.environ["SUPABASE_SERVICE_ROLE_KEY"] = ""
+os.environ["GEMINI_API_KEY"] = ""
