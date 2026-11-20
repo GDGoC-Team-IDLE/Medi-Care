@@ -162,6 +162,7 @@ interface TodaySlot {
   slot: Slot;
   scheduled_at: string;
   expected_count: number;
+  status: string; // PENDING · DONE · MISSED · WRONG
 }
 
 /** POST /patients/me/dose-slots/{slot_id}/verifications 응답 (쓰는 칸만) */
@@ -190,7 +191,8 @@ async function pickTarget(slotId?: number) {
   const sorted = [...slots].sort((a, b) => at(a) - at(b));
   const gap = (s: TodaySlot) => Math.abs(at(s) - Date.now());
   const slot = sorted.find((s) => s.slot_id === slotId) ?? sorted.reduce((a, b) => (gap(b) < gap(a) ? b : a));
-  return { slot, next: sorted[sorted.indexOf(slot) + 1] ?? null };
+  // 다음 회차: 이 회차보다 늦은 시각의 안 드신 회차 (처방이 여럿이면 같은 시각 회차가 여럿이라 바로 다음 칸이 아님)
+  return { slot, next: sorted.find((s) => at(s) > at(slot) && s.status !== 'DONE') ?? null };
 }
 
 /** p06 인증 촬영. 흰 점선 = 놓을 자리(위 약포, 아래 손바닥). 열 때 찍을 회차를 받아 제목에 쓴다 (못 받으면 예시) */
