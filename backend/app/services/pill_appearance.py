@@ -120,6 +120,14 @@ def appearance_from_mfds(pill_json: Any) -> Appearance | None:
     return Appearance(tuple(colors[:2]), shape)
 
 
+def imprint_from_mfds(pill_json: Any) -> str | None:
+    item = _first_pill_item(pill_json)
+    if item is None:
+        return None
+    parts = [str(_get(item, key) or "").strip() for key in ("PRINT_FRONT", "PRINT_BACK")]
+    return " / ".join(part for part in parts if part) or None
+
+
 @dataclass(frozen=True)
 class ExpectedPill:
     """이 회차에 먹어야 할 알약 1알"""
