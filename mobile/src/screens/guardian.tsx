@@ -1,6 +1,6 @@
 // 보호자: 잠금 알림 → 사건 → 현황 · 달력 · 화면 가득 알림
-import { useLocalSearchParams } from 'expo-router';
-import { useEffect, useState, type ReactNode } from 'react';
+import { useFocusEffect, useLocalSearchParams } from 'expo-router';
+import { useCallback, useEffect, useState, type ReactNode } from 'react';
 import { Image, View } from 'react-native';
 import Svg, { Path, Text as SvgText } from 'react-native-svg';
 import { go, swap } from '@/lib/nav';
@@ -296,6 +296,11 @@ function Head() {
   // 마이페이지에서 선택한 어르신(없으면 예시 이름). 달력도 그 어르신으로
   const cp = useCurrentPatient();
   const name = cp?.name ?? PATIENT;
+  // 실제 어르신이면 오늘 날짜, 예시(화면 목록)면 목업 날짜
+  const [today] = useState(() => {
+    const d = new Date();
+    return `${d.getMonth() + 1}월 ${d.getDate()}일`;
+  });
   return (
     <View style={[abs({ left: 28, right: 12, top: 62, height: 48 }), { flexDirection: 'row', alignItems: 'center', gap: 4 }]}>
       {/* 이름은 최대 10자: 아이콘 셋 · 날짜 자리를 남기고 한 줄로 줄인다 */}
@@ -303,7 +308,7 @@ function Head() {
         {name}
       </T>
       <T s={16} fit={96} c={C.ink2} style={{ flex: 1, marginLeft: 8 }}>
-        {TODAY}
+        {cp ? today : TODAY}
       </T>
       <Tap accessibilityLabel={`${name} 달력`} onPress={() => go(cp ? `c08-calendar?patient_id=${cp.patient_id}&name=${encodeURIComponent(cp.name)}` : 'c08-calendar')} style={btn}>
         <Icon name="calendar-days" size={24} />
@@ -318,7 +323,7 @@ function Head() {
   );
 }
 
-type DoseRow = { status: Status; name: string; note: string; warn?: boolean; photo?: IllName };
+type DoseRow = { status: Status; name: string; note: string; warn?: boolean; photo?: IllName; /** 실제 인증 사진 */ photoUri?: string };
 /** 현황: 작은 약통 칸 · 가운데 낱말('문제 있나'의 답) · 센 수 · 회차 목록. 칸이 뜬 뒤 글·목록이 올라온다 */
 function Overview({ slots, now, sum, warn, note, rows }: { slots: Slot[]; now: number; sum: string; warn?: boolean; note: string; rows: DoseRow[] }) {
   return (
@@ -348,10 +353,10 @@ function Overview({ slots, now, sum, warn, note, rows }: { slots: Slot[]; now: n
                   {r.note}
                 </T>
               </View>
-              {r.photo ? (
+              {r.photo || r.photoUri ? (
                 <Tap accessibilityLabel={`${r.name} 사진`}>
                   <View style={{ borderRadius: R.s, overflow: 'hidden' }}>
-                    <Ill name={r.photo} w={60} h={80} />
+                    {r.photoUri ? <Image source={{ uri: r.photoUri }} style={{ width: 60, height: 80 }} resizeMode="cover" /> : <Ill name={r.photo!} w={60} h={80} />}
                   </View>
                 </Tap>
               ) : (
@@ -367,9 +372,84 @@ function Overview({ slots, now, sum, warn, note, rows }: { slots: Slot[]; now: n
 const MORNING: DoseRow = { status: 'done', name: '아침', note: '8:12 완료', photo: 'photo-palm-morning' };
 const EVENING: DoseRow = { status: 'planned', name: '저녁', note: '예정' };
 
-/** g01 보호자 현황. GET 오늘 회차별 상태 · 인증 시각 · 인증 사진 */
+/** GET /guardian/patients/{id}/doses/today/ 의 회차 (쓰는 칸만). 처방이 여럿이면 같은 시간대 회차가 여럿 */
+type Round = { round_name: string; scheduled_at: string; status: 'COMPLETED' | 'MISSED' | 'INCORRECT' | 'SCHEDULED'; verified_at: string | null; photo_url: string | null };
+const ROUND_TRAY = { COMPLETED: 'done', MISSED: 'missed', INCORRECT: 'wrong', SCHEDULED: 'plan' } as const;
+const ROUND_MARK = { COMPLETED: 'done', MISSED: 'missed', INCORRECT: 'wrong', SCHEDULED: 'planned' } as const;
+const TRAY_NAMES = ['아침', '점심', '저녁'];
+const TRAY_NOW = [0.176, 0.441, 0.8235]; // 약통 칸 가운데 (다음 칸을 연한 회색으로)
+const hm = (iso: string) => {
+  const d = new Date(iso);
+  return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`;
+};
+
+/** 회차들을 시간대마다 한 줄로: 오복용 > 미복용 > 예정 > 완료 */
+function roundGroups(rounds: Round[]) {
+  const names = [...new Set([...rounds].sort((a, b) => a.scheduled_at.localeCompare(b.scheduled_at)).map((r) => r.round_name))];
+  return names.map((name) => {
+    const same = rounds.filter((r) => r.round_name === name);
+    const status: Round['status'] = (['INCORRECT', 'MISSED', 'SCHEDULED'] as const).find((k) => same.some((r) => r.status === k)) ?? 'COMPLETED';
+    const last = same.filter((r) => r.verified_at).sort((a, b) => (a.verified_at ?? '').localeCompare(b.verified_at ?? '')).pop();
+    return { name, status, last, some: same.some((r) => r.status === 'COMPLETED') };
+  });
+}
+
+/**
+ * g01 보호자 현황. '지금 어르신'(마이페이지 · 로그인 · 어르신 등록에서 정함)의 오늘 회차별 상태 · 인증 시각 · 인증 사진.
+ * 화면에 올 때와 15초마다 다시 본다(어르신이 약을 찍으면 곧 바뀐다). 지금 어르신이 없으면(화면 목록) 예시
+ */
 export function GToday() {
-  return <Overview slots={['done', 'done', 'plan']} now={0.62} sum="문제 없음" note="2/3 완료 · 다음 저녁" rows={[MORNING, { status: 'done', name: '점심', note: '12:31 완료', photo: 'photo-palm-noon-2' }, EVENING]} />;
+  const cp = useCurrentPatient();
+  const [rounds, setRounds] = useState<Round[] | null | 'error'>(null);
+  const pid = cp?.patient_id;
+  useFocusEffect(
+    useCallback(() => {
+      if (!pid) return;
+      let live = true;
+      const load = () =>
+        api
+          .get<{ data: { rounds: Round[] } }>(`/guardian/patients/${pid}/doses/today/`)
+          .then((r) => live && setRounds(r.data.rounds))
+          .catch(() => live && setRounds('error'));
+      void load();
+      const t = setInterval(() => void load(), 15000);
+      return () => {
+        live = false;
+        clearInterval(t);
+      };
+    }, [pid]),
+  );
+  if (!cp) {
+    return <Overview slots={['done', 'done', 'plan']} now={0.62} sum="문제 없음" note="2/3 완료 · 다음 저녁" rows={[MORNING, { status: 'done', name: '점심', note: '12:31 완료', photo: 'photo-palm-noon-2' }, EVENING]} />;
+  }
+  if (rounds === null) return <Overview slots={[]} now={1} sum="" note="" rows={[]} />;
+  if (rounds === 'error') return <Overview slots={[]} now={1} warn sum="불러오지 못했어요" note="잠시 뒤 다시 열어 주세요" rows={[]} />;
+  if (!rounds.length) return <Overview slots={[]} now={1} sum="오늘 약 없음" note="약봉투를 찍으면 시작해요" rows={[]} />;
+  const groups = roundGroups(rounds);
+  const slots = TRAY_NAMES.map((n) => {
+    const g = groups.find((x) => x.name === n);
+    return g ? ROUND_TRAY[g.status] : 'none';
+  });
+  const done = groups.filter((g) => g.status === 'COMPLETED').length;
+  const next = groups.find((g) => g.status === 'SCHEDULED');
+  const nextAt = next ? TRAY_NAMES.indexOf(next.name) : -1;
+  const wrong = groups.some((g) => g.status === 'INCORRECT');
+  const missed = groups.some((g) => g.status === 'MISSED');
+  const rows: DoseRow[] = groups.map((g) => {
+    const at = g.last?.verified_at ? hm(g.last.verified_at) : '';
+    const note = { COMPLETED: `${at} 완료`, INCORRECT: `${at} 확인 필요`.trim(), MISSED: '응답 없음', SCHEDULED: g.some ? '일부 완료' : '예정' }[g.status];
+    return { status: ROUND_MARK[g.status], name: g.name, note, warn: g.status === 'MISSED' || g.status === 'INCORRECT', photoUri: g.last?.photo_url ?? undefined };
+  });
+  return (
+    <Overview
+      slots={slots}
+      now={nextAt >= 0 ? TRAY_NOW[nextAt] : 1}
+      warn={wrong || missed}
+      sum={wrong ? '확인 필요' : missed ? '응답 없음' : '문제 없음'}
+      note={`${done}/${groups.length} 완료${next ? ` · 다음 ${next.name}` : ''}`}
+      rows={rows}
+    />
+  );
 }
 
 /** g12 사건 확인 뒤 현황. 미복용 행이 남는다 */
