@@ -21,6 +21,7 @@ EXPECTED_TABLES = {
     "pair_attempts",
     "guardian_alerts",
     "dur_checks",
+    "demo_clock",
 }
 
 

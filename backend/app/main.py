@@ -12,6 +12,7 @@ from app.core.prescription_drug_schema import upgrade_prescription_drug_schema
 from app.core.wrong_dose_alert_schema import upgrade_wrong_dose_alert_schema
 from app.core.guardian_alert_schema import upgrade_guardian_alert_schema
 from app.core.patient_schema import upgrade_patient_schema
+from app.routers.demo import load_demo_clock
 
 import importlib
 import pkgutil
@@ -36,6 +37,7 @@ async def lifespan(_: FastAPI):
     upgrade_wrong_dose_alert_schema(engine)
     upgrade_guardian_alert_schema(engine)
     upgrade_patient_schema(engine)
+    load_demo_clock()  # 시연 시계 (DEMO_ANY_DAY 일 때만 쓰임)
     yield
 
 
