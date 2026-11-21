@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { Animated, AppState, Easing, Image, Linking, View } from 'react-native';
 import * as Notifications from 'expo-notifications';
 import { back, go, swap } from '@/lib/nav';
-import { api, TOKEN_KEYS } from '@/lib/api';
+import { api, ApiError, TOKEN_KEYS } from '@/lib/api';
 import { getItem } from '@/lib/storage';
 import { isWeb } from '@/lib/platform';
 import { elderHome } from '@/screens/account';
@@ -134,22 +134,24 @@ function trayOf(slots: TodaySlot[]) {
  * 오늘(date 를 주면 그날) 회차. undefined = 불러오는 중 · null = 기기 연결 전(화면 목록 → 예시) · 'error' = 연결된 폰인데 못 불러옴.
  * 화면에 올 때마다 다시 본다
  */
-function useTodaySlots(date?: string) {
+function useTodaySlots(date?: string, patientId?: string) {
   const [slots, setSlots] = useState<TodaySlot[] | null | undefined | 'error'>(undefined);
   const load = useCallback(() => {
     let live = true;
+    // patientId: 보호자 폰(달력 → 그날 기록)에서 그 어르신. 없으면 어르신 폰(me)
     api
-      .get<{ slots: TodaySlot[] }>('/patients/me/dose-slots', date ? { date } : undefined)
+      .get<{ slots: TodaySlot[] }>(`/patients/${patientId ?? 'me'}/dose-slots`, date ? { date } : undefined)
       .then((r) => live && setSlots(r.slots))
-      // 실제 어르신 폰에서 예시 약을 안내하면 안 되므로, 기기 토큰이 있으면 예시 대신 오류를 보인다
-      .catch(async () => {
-        const paired = !!(await getItem(TOKEN_KEYS.device));
+      // 실제 어르신 폰에서 예시 약을 안내하면 안 되므로, 기기 토큰이 있으면(보호자가 어르신을 골랐으면) 예시 대신 오류를 보인다
+      .catch(async (x) => {
+        lastFail = failCode(x);
+        const paired = !!patientId || !!(await getItem(TOKEN_KEYS.device));
         if (live) setSlots(paired ? 'error' : null);
       });
     return () => {
       live = false;
     };
-  }, [date]);
+  }, [date, patientId]);
   useFocusEffect(load);
   return { slots, retry: () => (setSlots(undefined), load()) };
 }
@@ -167,14 +169,20 @@ function usePastDays(n = 6) {
   const [days, setDays] = useState<{ date: string; slots: TodaySlot[] }[] | null | undefined | 'error'>(undefined);
   const load = useCallback(() => {
     let live = true;
-    const dates = Array.from({ length: n }, (_, i) => {
-      const d = new Date();
-      d.setDate(d.getDate() - i - 1);
-      return ymd(d);
-    });
-    Promise.all(dates.map((date) => api.get<{ slots: TodaySlot[] }>('/patients/me/dose-slots', { date }).then((r) => ({ date, slots: r.slots }))))
+    // '오늘'은 서버 날짜 (시연 시계로 옮겼으면 그 날짜) 기준으로 어제부터 센다
+    api
+      .get<{ date: string }>('/patients/me/dose-slots')
+      .then(({ date: today }) =>
+        Array.from({ length: n }, (_, i) => {
+          const d = new Date(`${today}T00:00:00`);
+          d.setDate(d.getDate() - i - 1);
+          return ymd(d);
+        }),
+      )
+      .then((dates) => Promise.all(dates.map((date) => api.get<{ slots: TodaySlot[] }>('/patients/me/dose-slots', { date }).then((r) => ({ date, slots: r.slots })))))
       .then((d) => live && setDays(d))
-      .catch(async () => {
+      .catch(async (x) => {
+        lastFail = failCode(x);
         const paired = !!(await getItem(TOKEN_KEYS.device));
         if (live) setDays(paired ? 'error' : null);
       });
@@ -196,6 +204,10 @@ function pastMark(slots: TodaySlot[], time: DoseTime): Status | null {
 }
 
 /** 연결된 어르신 폰에서 오늘 회차를 못 불러왔을 때. 예시 약을 보이지 않는다 */
+/** 마지막 조회 실패의 원인 (HTTP 상태 · 서버 오류 코드). 불러오지 못했어요 아래에 작게 보여 원인을 알 수 있게 */
+let lastFail = '';
+const failCode = (x: unknown) => (x instanceof ApiError ? `${x.status || '연결 안 됨'} ${x.code}` : String(x));
+
 function LoadFail({ retry }: { retry: () => void }) {
   return (
     <Phone>
@@ -206,6 +218,11 @@ function LoadFail({ retry }: { retry: () => void }) {
           불러오지 못했어요
         </T>
       </Up>
+      {!!lastFail && (
+        <T s={16} c={C.ink2} center top={432}>
+          {`오류: ${lastFail}`}
+        </T>
+      )}
       <Btn up={0.85} two icon="refresh-cw" label="다시 해 보기" onPress={retry} />
       <Sub up={0.9} icon="phone" label={callG} onPress={call} />
     </Phone>
@@ -214,6 +231,8 @@ function LoadFail({ retry }: { retry: () => void }) {
 
 /** p04 오늘: 지금 먹을 회차. 회차 상태는 약통 칸으로만 말한다 */
 export function Today() {
+  // ?slot_id: p19 '다음 시간대로 이동'(시연 시계)으로 온 회차를 지금 드실 회차로
+  const { slot_id } = useLocalSearchParams<{ slot_id?: string }>();
   // undefined = 불러오는 중 · null = 기기 연결 전(화면 목록에서 바로 열기 → 예시) · 'error' = 연결된 폰인데 못 불러옴
   const [data, setData] = useState<{ slots: TodaySlot[]; cur: TodaySlot | null } | null | undefined | 'error'>(undefined);
   // 화면에 올 때마다 · 다시 해 보기를 누를 때 오늘 회차를 다시 본다
@@ -224,17 +243,19 @@ export function Today() {
       .then(({ slots: s }) => {
         if (!live) return;
         if (!s.length) return swap('p21-empty'); // 오늘 회차 없음
-        setData({ slots: s, cur: pickNow(s) });
+        const asked = s.find((x) => String(x.slot_id) === slot_id && x.status !== 'DONE');
+        setData({ slots: s, cur: asked ?? pickNow(s) });
       })
       // 실제 어르신 폰에서 예시 약을 안내하면 안 되므로, 기기 토큰이 있으면 예시 대신 오류를 보인다
-      .catch(async () => {
+      .catch(async (x) => {
+        lastFail = failCode(x);
         const paired = !!(await getItem(TOKEN_KEYS.device));
         if (live) setData(paired ? 'error' : null);
       });
     return () => {
       live = false;
     };
-  }, []);
+  }, [slot_id]);
   useFocusEffect(load);
   if (data === undefined) return <Phone>{null}</Phone>;
   if (data === 'error') return <LoadFail retry={() => (setData(undefined), load())} />;
@@ -338,10 +359,23 @@ export function Wait() {
   // 넘겨 볼 칸은 처방이 끝나는 날까지, 불러 둔 칸이 바닥날 때마다 일주일씩 더 불러온다
   const more = useRef<{ loaded: number; end: string | null }>({ loaded: 0, end: null });
   const busy = useRef(false);
+  const [demoEnd, setDemoEnd] = useState(false); // 시연 시계로 더 넘길 회차가 없음
   const advance = async () => {
     if (!Array.isArray(slots) || busy.current) return;
     busy.current = true;
     try {
+      // 시연 설정(DEMO_ANY_DAY)이 켜진 서버: 서버 시계를 다음 예정 회차 시각으로 옮기고, 그 회차를 '지금 드실 약'으로(p04)
+      // → 다 드셨어요 · 오늘 먹은 약 · 달력 · 보호자 현황이 모두 그 시각을 따른다
+      try {
+        const r = await api.post<{ slot_id: number }>('/patients/me/demo/next');
+        swap(`p04-today?slot_id=${r.slot_id}`);
+        return;
+      } catch (x) {
+        const code = x instanceof ApiError ? x.code : '';
+        if (code === 'NO_NEXT_DOSE') return setDemoEnd(true);
+        if (code !== 'DEMO_OFF') return; // 연결 문제 등: 그대로 둔다
+      }
+      // 시연 설정이 꺼진 서버: 오늘 이후 회차를 미리 보기로 한 칸씩
       let list = steps ?? groups(ymd(new Date()), slots, slots.filter((s) => s.status === 'PENDING'), true);
       const m = more.current;
       m.end ??= await lastDoseDate();
@@ -359,6 +393,27 @@ export function Wait() {
   const seeToday = <Btn up={0.85} two kind="idle" label="오늘 먹은 약 보기" onPress={() => go('p27-didtake')} />;
   if (slots === undefined) return <Phone>{null}</Phone>;
   if (slots === 'error') return <LoadFail retry={retry} />;
+  if (slots !== null && demoEnd) {
+    // 시연 시계: 남은 회차 없음 → '처음으로' 는 서버 시계를 실제 시각으로 되돌린다
+    const reset = async () => {
+      await api.post('/patients/me/demo/reset').catch(() => undefined);
+      setDemoEnd(false);
+      retry();
+    };
+    return (
+      <Phone key="demo-end">
+        <Say icon text="다음 약이 없어요." />
+        <Tray slots={trayOf(slots)} now={1} />
+        <Up delay={0.6}>
+          <T s={56} k center top={380}>
+            다음 약이 없어요
+          </T>
+        </Up>
+        {seeToday}
+        <Sub up={0.9} icon="arrow-right" label="실제 시각으로 돌아가기" onPress={() => void reset()} />
+      </Phone>
+    );
+  }
   if (slots !== null && step > 0 && steps) {
     const cur = steps[step - 1];
     if (!cur) {
@@ -750,8 +805,9 @@ export function PastDays() {
 
 /** c09 그날의 기록. 한 회차에 여러 장이면 마지막 판정 사진 한 장. p33 에서 ?date= 로 온다(없으면 예시) */
 export function Day() {
-  const { date } = useLocalSearchParams<{ date?: string }>();
-  const { slots, retry } = useTodaySlots(date);
+  const { date, patient_id } = useLocalSearchParams<{ date?: string; patient_id?: string }>();
+  // patient_id: 보호자 달력에서 온 그 어르신 (없으면 어르신 폰 me)
+  const { slots, retry } = useTodaySlots(date, patient_id);
   if (date) {
     if (slots === undefined) return <Phone>{null}</Phone>;
     if (slots === 'error') return <LoadFail retry={retry} />;

@@ -342,3 +342,12 @@ class DurCheck(Base):
     # [{warning_id, warning_type, medications, original_message, easy_message, source}]
     warnings_json: Mapped[Any] = mapped_column(JSONColumn)
     checked_at: Mapped[datetime] = mapped_column(DateTime, default=now_local)
+
+
+class DemoClock(Base):
+    """시연 시계 (한 줄, id=1). offset_seconds 만큼 서버의 '지금'을 옮깁니다. DEMO_ANY_DAY 가 켜져 있을 때만 쓰입니다."""
+
+    __tablename__ = "demo_clock"
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    offset_seconds: Mapped[int] = mapped_column(Integer, default=0)

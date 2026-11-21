@@ -290,7 +290,8 @@ export function WellEvent() {
 }
 
 /* ── 현황 ── */
-function Head() {
+/** date: 서버가 알려 준 오늘 'YYYY-MM-DD' (시연 시계로 옮겼으면 그 날짜). 없으면 이 기기 날짜 */
+function Head({ date }: { date?: string } = {}) {
   // 아이콘 셋(달력 · 화면 가득 알림 · 마이페이지)이 들어가도 날짜가 꺾이지 않게 단추 폭 44, 날짜는 한 줄
   const btn = { width: 44, height: 48, alignItems: 'center', justifyContent: 'center' } as const;
   // 마이페이지에서 선택한 어르신(없으면 예시 이름). 달력도 그 어르신으로
@@ -308,7 +309,7 @@ function Head() {
         {name}
       </T>
       <T s={16} fit={96} c={C.ink2} style={{ flex: 1, marginLeft: 8 }}>
-        {cp ? today : TODAY}
+        {date ? `${Number(date.slice(5, 7))}월 ${Number(date.slice(8, 10))}일` : cp ? today : TODAY}
       </T>
       <Tap accessibilityLabel={`${name} 달력`} onPress={() => go(cp ? `c08-calendar?patient_id=${cp.patient_id}&name=${encodeURIComponent(cp.name)}` : 'c08-calendar')} style={btn}>
         <Icon name="calendar-days" size={24} />
@@ -325,10 +326,10 @@ function Head() {
 
 type DoseRow = { status: Status; name: string; note: string; warn?: boolean; photo?: IllName; /** 실제 인증 사진 */ photoUri?: string };
 /** 현황: 작은 약통 칸 · 가운데 낱말('문제 있나'의 답) · 센 수 · 회차 목록. 칸이 뜬 뒤 글·목록이 올라온다 */
-function Overview({ slots, now, sum, warn, note, rows }: { slots: Slot[]; now: number; sum: string; warn?: boolean; note: string; rows: DoseRow[] }) {
+function Overview({ slots, now, sum, warn, note, rows, date }: { slots: Slot[]; now: number; sum: string; warn?: boolean; note: string; rows: DoseRow[]; date?: string }) {
   return (
     <Phone>
-      <Head />
+      <Head date={date} />
       <Tray small slots={slots} now={now} />
       <Up delay={0.6}>
         <T h c={warn ? C.misst : undefined} center top={292}>
@@ -401,6 +402,8 @@ function roundGroups(rounds: Round[]) {
 export function GToday() {
   const cp = useCurrentPatient();
   const [rounds, setRounds] = useState<Round[] | null | 'error'>(null);
+  const [date, setDate] = useState<string>(); // 서버의 오늘 (시연 시계를 따름)
+  const [fail, setFail] = useState(''); // 불러오지 못했을 때 원인 (상태 · 코드)
   const pid = cp?.patient_id;
   useFocusEffect(
     useCallback(() => {
@@ -408,9 +411,17 @@ export function GToday() {
       let live = true;
       const load = () =>
         api
-          .get<{ data: { rounds: Round[] } }>(`/guardian/patients/${pid}/doses/today/`)
-          .then((r) => live && setRounds(r.data.rounds))
-          .catch(() => live && setRounds('error'));
+          .get<{ data: { date: string; rounds: Round[] } }>(`/guardian/patients/${pid}/doses/today/`)
+          .then((r) => {
+            if (!live) return;
+            setRounds(r.data.rounds);
+            setDate(r.data.date);
+          })
+          .catch((x) => {
+            if (!live) return;
+            setFail(x instanceof ApiError ? `${x.status || '연결 안 됨'} ${x.code}` : String(x));
+            setRounds('error');
+          });
       void load();
       const t = setInterval(() => void load(), 15000);
       return () => {
@@ -423,7 +434,7 @@ export function GToday() {
     return <Overview slots={['done', 'done', 'plan']} now={0.62} sum="문제 없음" note="2/3 완료 · 다음 저녁" rows={[MORNING, { status: 'done', name: '점심', note: '12:31 완료', photo: 'photo-palm-noon-2' }, EVENING]} />;
   }
   if (rounds === null) return <Overview slots={[]} now={1} sum="" note="" rows={[]} />;
-  if (rounds === 'error') return <Overview slots={[]} now={1} warn sum="불러오지 못했어요" note="잠시 뒤 다시 열어 주세요" rows={[]} />;
+  if (rounds === 'error') return <Overview slots={[]} now={1} warn sum="불러오지 못했어요" note={`잠시 뒤 다시 열어 주세요 · 오류: ${fail}`} rows={[]} />;
   if (!rounds.length) return <Overview slots={[]} now={1} sum="오늘 약 없음" note="약봉투를 찍으면 시작해요" rows={[]} />;
   const groups = roundGroups(rounds);
   const slots = TRAY_NAMES.map((n) => {
@@ -442,6 +453,7 @@ export function GToday() {
   });
   return (
     <Overview
+      date={date}
       slots={slots}
       now={nextAt >= 0 ? TRAY_NOW[nextAt] : 1}
       warn={wrong || missed}
@@ -606,7 +618,8 @@ export function Calendar() {
               key={day}
               disabled={!w}
               accessibilityLabel={`${m + 1}월 ${day}일${label}`}
-              onPress={() => go('c09-day')}
+              // 그날 기록: 실제 어르신이면 날짜 · 어르신을 넘긴다 (없으면 예시)
+              onPress={() => go(pid ? `c09-day?date=${y}-${String(m + 1).padStart(2, '0')}-${String(day).padStart(2, '0')}&patient_id=${pid}` : 'c09-day')}
               style={{ width: `${100 / 7}%`, height: h, alignItems: 'center', paddingTop: 8, gap: 8, borderRadius: R.s, borderWidth: isToday ? 2 : 0, borderColor: C.ink }}
             >
               <T s={16} lh={1} k={isToday} c={w ? C.ink : C.plan}>
